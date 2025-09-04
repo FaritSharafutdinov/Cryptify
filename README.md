@@ -1,0 +1,2 @@
+# Cryptify
+Prediction cryptocurrency prices
