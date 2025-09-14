@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: criptify_postgres
+    environment:
+      POSTGRES_DB: criptify_db
+      POSTGRES_USER: criptify_user
+      POSTGRES_PASSWORD: criptify_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U criptify_user -d criptify_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: criptify_backend
+    environment:
+      DATABASE_URL: postgresql://criptify_user:criptify_password@postgres:5432/criptify_db
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ML Service (placeholder for future implementation)
+  ml-service:
+    image: python:3.9-slim
+    container_name: criptify_ml
+    environment:
+      DATABASE_URL: postgresql://criptify_user:criptify_password@postgres:5432/criptify_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./ml:/app
+      - ml_models:/app/models
+    restart: unless-stopped
+    command: ["tail", "-f", "/dev/null"]  # Keep container running for now
+
+  # Frontend (placeholder for future implementation)
+  frontend:
+    image: node:18-alpine
+    container_name: criptify_frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+    working_dir: /app
+    command: ["tail", "-f", "/dev/null"]  # Keep container running for now
+
+volumes:
+  postgres_data:
+  ml_models:
