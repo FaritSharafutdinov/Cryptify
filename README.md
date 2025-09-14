@@ -176,40 +176,6 @@ black .
 isort .
 ```
 
-## API Testing
-
-### Using curl
-
-```bash
-# Health check
-curl http://localhost:8000/health
-
-# Get historical data
-curl "http://localhost:8000/history?from_time=2024-01-01T00:00:00&to_time=2024-01-07T23:59:59"
-
-# Get latest predictions
-curl http://localhost:8000/predictions/latest?limit=5
-```
-
-### Using Python requests
-
-```python
-import requests
-
-# Health check
-response = requests.get("http://localhost:8000/health")
-print(response.json())
-
-# Historical data
-response = requests.get(
-    "http://localhost:8000/history",
-    params={
-        "from_time": "2024-01-01T00:00:00",
-        "to_time": "2024-01-07T23:59:59"
-    }
-)
-print(response.json())
-```
 
 ## Environment Variables
 
@@ -220,59 +186,6 @@ print(response.json())
 | `API_PORT` | API server port | `8000` |
 | `ENVIRONMENT` | Environment type | `development` |
 
-## Troubleshooting
-
-### Common Issues
-
-1. **Database connection failed**
-   - Ensure PostgreSQL container is running: `docker-compose ps`
-   - Check database logs: `docker-compose logs postgres`
-
-2. **Port already in use**
-   - Change ports in docker-compose.yml
-   - Kill processes using the ports: `sudo lsof -ti:8000 | xargs kill -9`
-
-3. **Permission denied**
-   - Ensure Docker has proper permissions
-   - Run with sudo if necessary: `sudo docker-compose up -d`
-
-### Logs and Debugging
-
-```bash
-# View all logs
-docker-compose logs
-
-# View specific service logs
-docker-compose logs backend
-docker-compose logs postgres
-
-# Follow logs in real-time
-docker-compose logs -f backend
-```
-
-## Next Steps
-
-1. **ML Pipeline Implementation**
-   - Data fetcher for Bybit API
-   - Feature engineering scripts
-   - Model training and inference
-
-2. **Frontend Development**
-   - React application with charts
-   - Real-time data visualization
-
-3. **Production Deployment**
-   - Environment-specific configurations
-   - Monitoring and logging
-   - CI/CD pipeline
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
 
 ## License
 
