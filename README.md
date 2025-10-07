@@ -1,6 +1,6 @@
 # Criptify - BTC Price Prediction Application
 
-A web application for BTC price prediction with a 48-hour horizon, built with Docker containerization.
+A web application for BTC price prediction with a 3-hour horizon, built with Docker containerization.
 
 ## Architecture
 
