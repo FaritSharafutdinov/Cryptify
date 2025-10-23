@@ -1,21 +1,22 @@
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, and_
 from datetime import datetime, timedelta
-from typing import Optional, List
+from typing import Optional, List, Dict
+from pydantic import BaseModel
 import sys
 import os
 
-# Add the backend directory to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.database import get_db, RawBar, Prediction, ModelMetric
+from services.model_service import ModelService
 
 app = FastAPI(
     title="Criptify Backend API",
     description="Backend API for BTC price prediction application",
-    version="1.0.0",
+    version="2.0.0",
 )
 
 # Add CORS middleware
@@ -26,6 +27,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Initialize model service
+model_service = ModelService(models_directory="/app/trained_models")
+
+
+# Pydantic models for request/response
+class PredictionRequest(BaseModel):
+    model_name: str
+    prediction_horizon: int
+    save_to_db: bool = True
+
+
+class ModelRegistrationRequest(BaseModel):
+    model_name: str
+    model_type: str
+    prediction_horizons: List[int]
+    file_path: str
+    feature_config: Optional[Dict] = None
 
 
 @app.get("/health")
@@ -134,19 +153,28 @@ async def get_latest_predictions(
     limit: int = Query(
         10, ge=1, le=100, description="Number of latest predictions to return"
     ),
+    model_name: Optional[str] = Query(None, description="Filter by model name"),
+    horizon: Optional[int] = Query(None, description="Filter by prediction horizon"),
     db: Session = Depends(get_db),
 ):
-    """Get the latest predictions"""
+    """Get the latest predictions with optional filters"""
     try:
-        predictions = (
-            db.query(Prediction).order_by(desc(Prediction.timestamp)).limit(limit).all()
-        )
+        query = db.query(Prediction)
+
+        # Apply filters
+        if model_name:
+            query = query.filter(Prediction.model_name == model_name)
+        if horizon:
+            query = query.filter(Prediction.prediction_horizon == horizon)
+
+        predictions = query.order_by(desc(Prediction.timestamp)).limit(limit).all()
 
         predictions_data = []
         for pred in predictions:
             predictions_data.append(
                 {
                     "timestamp": pred.timestamp.isoformat(),
+                    "model_name": pred.model_name,
                     "prediction_horizon": pred.prediction_horizon,
                     "predicted_value": pred.predicted_value,
                     "predicted_time": (
@@ -168,12 +196,18 @@ async def get_latest_predictions(
 
 
 @app.get("/metrics/latest")
-async def get_latest_metrics(db: Session = Depends(get_db)):
+async def get_latest_metrics(
+    model_name: Optional[str] = Query(None, description="Filter by model name"),
+    db: Session = Depends(get_db),
+):
     """Get the latest model performance metrics"""
     try:
-        metrics = (
-            db.query(ModelMetric).order_by(desc(ModelMetric.created_at)).limit(20).all()
-        )
+        query = db.query(ModelMetric)
+
+        if model_name:
+            query = query.filter(ModelMetric.model_name == model_name)
+
+        metrics = query.order_by(desc(ModelMetric.created_at)).limit(20).all()
 
         metrics_data = []
         for metric in metrics:
@@ -191,6 +225,117 @@ async def get_latest_metrics(db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error retrieving metrics: {str(e)}"
+        )
+
+
+@app.get("/models")
+async def list_models(db: Session = Depends(get_db)):
+    """
+    Get list of available ML models
+
+    Returns all registered and active models with their supported prediction horizons
+    """
+    try:
+        models = model_service.get_available_models(db)
+        return {"status": "success", "data": models, "count": len(models)}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error retrieving models: {str(e)}"
+        )
+
+
+@app.post("/models/register")
+async def register_model(
+    request: ModelRegistrationRequest, db: Session = Depends(get_db)
+):
+    """
+    Register a new ML model
+
+    Body parameters:
+    - model_name: Unique name for the model
+    - model_type: Type of model (e.g., 'LinearRegression', 'RandomForest')
+    - prediction_horizons: List of supported horizons in hours [1, 3, 24, 168]
+    - file_path: Path to the model file
+    - feature_config: Optional configuration for features
+    """
+    try:
+        result = model_service.register_model(
+            model_name=request.model_name,
+            model_type=request.model_type,
+            prediction_horizons=request.prediction_horizons,
+            file_path=request.file_path,
+            feature_config=request.feature_config,
+            db=db,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error registering model: {str(e)}"
+        )
+
+
+@app.post("/predict")
+async def make_prediction(request: PredictionRequest, db: Session = Depends(get_db)):
+    """
+    Make a prediction using a specified model and time horizon
+
+    Body parameters:
+    - model_name: Name of the model to use for prediction
+    - prediction_horizon: Time horizon in hours (1, 3, 24, 168, etc.)
+    - save_to_db: Whether to save the prediction to database (default: true)
+
+    Returns:
+    - Prediction value, timestamps, and current price
+    """
+    try:
+        result = model_service.make_prediction(
+            model_name=request.model_name,
+            horizon=request.prediction_horizon,
+            db=db,
+            save_to_db=request.save_to_db,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error making prediction: {str(e)}"
+        )
+
+
+@app.get("/predict/{model_name}/{horizon}")
+async def make_prediction_get(
+    model_name: str,
+    horizon: int,
+    save_to_db: bool = Query(True, description="Save prediction to database"),
+    db: Session = Depends(get_db),
+):
+    """
+    Make a prediction using GET request
+
+    Path parameters:
+    - model_name: Name of the model to use
+    - horizon: Prediction horizon in hours
+
+    Query parameters:
+    - save_to_db: Whether to save prediction to database (default: true)
+    """
+    try:
+        result = model_service.make_prediction(
+            model_name=model_name, horizon=horizon, db=db, save_to_db=save_to_db
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error making prediction: {str(e)}"
         )
 
 

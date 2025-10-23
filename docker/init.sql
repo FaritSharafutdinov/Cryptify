@@ -28,13 +28,15 @@ CREATE INDEX IF NOT EXISTS idx_raw_bars_symbol ON raw_bars(symbol);
 CREATE TABLE IF NOT EXISTS predictions (
     id SERIAL PRIMARY KEY,
     timestamp TIMESTAMP NOT NULL,
-    prediction_horizon INTEGER NOT NULL DEFAULT 48,
+    model_name VARCHAR(100) NOT NULL DEFAULT 'baseline',
+    prediction_horizon INTEGER NOT NULL DEFAULT 3,
     predicted_value DECIMAL(20, 8) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Create index on timestamp for faster queries
 CREATE INDEX IF NOT EXISTS idx_predictions_timestamp ON predictions(timestamp);
+CREATE INDEX IF NOT EXISTS idx_predictions_model_name ON predictions(model_name);
 
 -- Create model_metrics table for storing model performance metrics
 CREATE TABLE IF NOT EXISTS model_metrics (
@@ -70,6 +72,23 @@ CREATE TABLE IF NOT EXISTS ml_features (
 
 -- Create index on timestamp for faster queries
 CREATE INDEX IF NOT EXISTS idx_ml_features_timestamp ON ml_features(timestamp);
+
+-- Create ml_models table for model registry
+CREATE TABLE IF NOT EXISTS ml_models (
+    id SERIAL PRIMARY KEY,
+    model_name VARCHAR(100) NOT NULL UNIQUE,
+    model_type VARCHAR(50) NOT NULL,
+    prediction_horizons JSONB NOT NULL,
+    file_path VARCHAR(255) NOT NULL,
+    feature_config JSONB,
+    is_active INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create index on model_name for faster queries
+CREATE INDEX IF NOT EXISTS idx_ml_models_model_name ON ml_models(model_name);
+CREATE INDEX IF NOT EXISTS idx_ml_models_is_active ON ml_models(is_active);
 
 -- Insert sample BTC data for testing (last 7 days with realistic prices)
 -- Data starts from 7 days ago, hourly intervals
@@ -252,8 +271,12 @@ INSERT INTO raw_bars (timestamp, symbol, open_price, high_price, low_price, clos
     (NOW(), 'BTCUSDT', 74450.00, 74580.00, 74390.00, 74520.00, 698.75);
 
 -- Insert sample prediction (3 hours ahead from current time)
-INSERT INTO predictions (timestamp, prediction_horizon, predicted_value) VALUES
-    (NOW(), 3, 74850.00);
+INSERT INTO predictions (timestamp, model_name, prediction_horizon, predicted_value) VALUES
+    (NOW(), 'baseline', 3, 74850.00);
+
+-- Insert sample model registry entry
+INSERT INTO ml_models (model_name, model_type, prediction_horizons, file_path, feature_config, is_active) VALUES
+    ('baseline', 'LinearRegression', '[1, 3, 24, 168]', '/app/trained_models/baseline_model.joblib', '{"features": ["lag_1h", "lag_2h", "lag_24h", "SMA_10h", "price_change_1h"]}', 1);
 
 -- Grant permissions to the application user
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO criptify_user;

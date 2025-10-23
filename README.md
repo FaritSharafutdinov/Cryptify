@@ -1,6 +1,6 @@
-# Criptify - BTC Price Prediction Application
+# Cryptify - BTC Price Prediction Application
 
-A web application for BTC price prediction with a 3-hour horizon, built with Docker containerization.
+A web application for BTC price prediction with multiple time horizons and ML models, built with Docker containerization.
 
 ## Architecture
 
@@ -21,9 +21,14 @@ Cryptify/
 │   ├── models/             # Database models
 │   │   ├── database.py     # SQLAlchemy models and DB connection
 │   │   └── __init__.py
+│   ├── services/           # 🆕 Business logic services
+│   │   ├── model_service.py # ML model management service
+│   │   └── __init__.py
+│   ├── trained_models/     # 🆕 Directory for ML model files
 │   ├── requirements.txt    # Python dependencies
 │   ├── Dockerfile         # Backend container configuration
 │   ├── run_dev.py         # Development server runner
+│   ├── API_DOCUMENTATION.md # 🆕 Detailed API documentation
 │   └── env.example        # Environment variables template
 ├── docker/                 # Docker configuration
 │   └── init.sql           # Database initialization script
@@ -89,34 +94,150 @@ python run_dev.py
 
 ## API Endpoints
 
-### Health Check
+### Core Endpoints
+
+#### Health Check
 ```bash
 GET /health
 ```
 
-### Historical Data
+#### Historical Data
 ```bash
 GET /history?from_time=2024-01-01T00:00:00&to_time=2024-01-07T23:59:59
 ```
 
-### Latest Predictions
+#### Latest Predictions
 ```bash
-GET /predictions/latest?limit=10
+GET /predictions/latest?limit=10&model_name=baseline&horizon=3
 ```
 
-### Model Metrics
+#### Model Metrics
 ```bash
-GET /metrics/latest
+GET /metrics/latest?model_name=baseline
 ```
+
+### 🆕 Model Management Endpoints
+
+#### List Available Models
+```bash
+GET /models
+```
+
+#### Register New Model
+```bash
+POST /models/register
+Content-Type: application/json
+
+{
+  "model_name": "random_forest_v1",
+  "model_type": "RandomForest",
+  "prediction_horizons": [1, 3, 24, 168],
+  "file_path": "/app/trained_models/rf_model.joblib"
+}
+```
+
+### 🆕 Prediction Endpoints
+
+#### Make Prediction (POST)
+```bash
+POST /predict
+Content-Type: application/json
+
+{
+  "model_name": "baseline",
+  "prediction_horizon": 24,
+  "save_to_db": true
+}
+```
+
+#### Make Prediction (GET)
+```bash
+GET /predict/{model_name}/{horizon}?save_to_db=true
+
+# Example
+GET /predict/baseline/3
+GET /predict/baseline/24
+GET /predict/baseline/168
+```
+
+### Supported Time Horizons
+
+| Horizon | Hours | Use Case |
+|---------|-------|----------|
+| 1h      | 1     | Very short-term trading |
+| 3h      | 3     | Short-term trading |
+| 1d      | 24    | Day trading |
+| 1w      | 168   | Swing trading |
+
+**Note**: Check model's supported horizons via `GET /models`
 
 ## Database Schema
 
 ### Tables
 
 1. **raw_bars** - OHLCV data from Bybit API
-2. **predictions** - ML model predictions
+2. **predictions** - ML model predictions (now includes `model_name` and configurable `prediction_horizon`)
 3. **model_metrics** - Model performance metrics
 4. **ml_features** - Engineered features for ML pipeline
+5. **ml_models** - 🆕 Model registry for managing multiple trained models
+
+## 📚 Documentation
+
+For detailed API documentation, see [API_DOCUMENTATION.md](backend/API_DOCUMENTATION.md)
+
+Interactive API docs available at:
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+
+## Usage Examples
+
+### Make a Prediction
+
+```bash
+# Using cURL
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_name": "baseline",
+    "prediction_horizon": 24,
+    "save_to_db": true
+  }'
+
+# Or use the GET endpoint
+curl http://localhost:8000/predict/baseline/3
+```
+
+### List Available Models
+
+```bash
+curl http://localhost:8000/models
+```
+
+### Get Predictions with Filters
+
+```bash
+# Get last 5 predictions from baseline model with 24h horizon
+curl "http://localhost:8000/predictions/latest?model_name=baseline&horizon=24&limit=5"
+```
+
+### Python Example
+
+```python
+import requests
+
+# Make a prediction
+response = requests.post(
+    "http://localhost:8000/predict",
+    json={
+        "model_name": "baseline",
+        "prediction_horizon": 3,
+        "save_to_db": True
+    }
+)
+result = response.json()
+print(f"Predicted price in 3h: ${result['predicted_value']:.2f}")
+print(f"Current price: ${result['current_price']:.2f}")
+```
 
 ## Useful Commands
 
