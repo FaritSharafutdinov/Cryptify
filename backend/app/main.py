@@ -45,6 +45,7 @@ class ModelRegistrationRequest(BaseModel):
     prediction_horizons: List[int]
     file_path: str
     feature_config: Optional[Dict] = None
+    metrics: Optional[Dict] = None
 
 
 @app.get("/health")
@@ -265,6 +266,7 @@ async def register_model(
             prediction_horizons=request.prediction_horizons,
             file_path=request.file_path,
             feature_config=request.feature_config,
+            metrics=request.metrics,
             db=db,
         )
         return result

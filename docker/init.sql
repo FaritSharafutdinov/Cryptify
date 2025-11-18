@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS ml_models (
     prediction_horizons JSONB NOT NULL,
     file_path VARCHAR(255) NOT NULL,
     feature_config JSONB,
+    metrics JSONB,
     is_active INTEGER DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -275,8 +276,8 @@ INSERT INTO predictions (timestamp, model_name, prediction_horizon, predicted_va
     (NOW(), 'baseline', 3, 74850.00);
 
 -- Insert sample model registry entry
-INSERT INTO ml_models (model_name, model_type, prediction_horizons, file_path, feature_config, is_active) VALUES
-    ('baseline', 'LinearRegression', '[1, 3, 24, 168]', '/app/trained_models/baseline_model.joblib', '{"features": ["lag_1h", "lag_2h", "lag_24h", "SMA_10h", "price_change_1h"]}', 1);
+INSERT INTO ml_models (model_name, model_type, prediction_horizons, file_path, feature_config, metrics, is_active) VALUES
+    ('baseline', 'LinearRegression', '[1, 3, 24, 168]', '/app/trained_models/baseline_model.joblib', '{"features": ["lag_1h", "lag_2h", "lag_24h", "SMA_10h", "price_change_1h"]}', '{"r2": 0.0, "mae": 0.0, "rmse": 0.0}', 1);
 
 -- Grant permissions to the application user
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO criptify_user;

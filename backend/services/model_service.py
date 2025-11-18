@@ -38,6 +38,7 @@ class ModelService:
                     "model_type": model.model_type,
                     "prediction_horizons": model.prediction_horizons,
                     "file_path": model.file_path,
+                    "metrics": model.metrics,
                     "is_active": model.is_active,
                     "created_at": (
                         model.created_at.isoformat() if model.created_at else None
@@ -211,6 +212,7 @@ class ModelService:
         prediction_horizons: List[int],
         file_path: str,
         feature_config: Optional[Dict] = None,
+        metrics: Optional[Dict] = None,
         db: Session = None,
     ) -> Dict:
         """
@@ -222,6 +224,7 @@ class ModelService:
             prediction_horizons: List of supported horizons in hours
             file_path: Path to the model file
             feature_config: Optional configuration for features
+            metrics: Optional performance metrics to store with the model
             db: Database session
 
         Returns:
@@ -240,6 +243,7 @@ class ModelService:
             prediction_horizons=prediction_horizons,
             file_path=file_path,
             feature_config=feature_config or {},
+            metrics=metrics,
             is_active=1,
         )
 

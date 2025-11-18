@@ -88,6 +88,7 @@ class MLModel(Base):
     feature_config = Column(
         JSON, nullable=True
     )  # Configuration for feature engineering
+    metrics = Column(JSON, nullable=True)
     is_active = Column(Integer, default=1)  # 1 = active, 0 = inactive
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
