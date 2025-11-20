@@ -1,7 +1,12 @@
 requests
 pandas
+pandas_ta
 sqlalchemy
 psycopg2-binary
 scikit-learn
 joblib
 numpy
+xgboost
+tensorflow
+ccxt
+yfinance
