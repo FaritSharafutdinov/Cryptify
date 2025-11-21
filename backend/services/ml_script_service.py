@@ -34,12 +34,17 @@ class MLScriptService:
         Инициализация сервиса
         
         Args:
-            scripts_directory: Путь к директории со скриптами (по умолчанию ../scripts)
+            scripts_directory: Путь к директории со скриптами (по умолчанию ../scripts или /scripts в Docker)
         """
         if scripts_directory is None:
-            # Определяем путь к scripts относительно backend
-            backend_dir = Path(__file__).parent.parent
-            scripts_directory = backend_dir.parent / "scripts"
+            # Проверяем, работаем ли в Docker (путь /scripts существует)
+            docker_scripts_path = Path("/scripts")
+            if docker_scripts_path.exists():
+                scripts_directory = str(docker_scripts_path)
+            else:
+                # Определяем путь к scripts относительно backend
+                backend_dir = Path(__file__).parent.parent
+                scripts_directory = str(backend_dir.parent / "scripts")
         
         self.scripts_directory = Path(scripts_directory).resolve()
         self.running_processes: Dict[str, subprocess.Popen] = {}

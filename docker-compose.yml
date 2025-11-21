@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL Database
   postgres:
@@ -37,6 +35,7 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
+      - ./scripts:/scripts
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]

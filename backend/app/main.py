@@ -112,6 +112,7 @@ async def get_history(
     Get historical data and predictions for the specified time range.
 
     Returns combined data from btc_features_1h and predictions tables.
+    Format adapted for frontend compatibility.
     """
     try:
         # Set default time range if not provided (last 7 days)
@@ -120,14 +121,71 @@ async def get_history(
         if not to_time:
             to_time = datetime.utcnow()
 
-        # Query features data (from ML pipeline)
-        features_query = (
-            db.query(BTCFeature)
-            .filter(and_(BTCFeature.timestamp >= from_time, BTCFeature.timestamp <= to_time))
-            .order_by(BTCFeature.timestamp)
+        # Query raw bars data (for frontend compatibility)
+        raw_bars_query = (
+            db.query(RawBar)
+            .filter(and_(RawBar.timestamp >= from_time, RawBar.timestamp <= to_time))
+            .order_by(RawBar.timestamp)
         )
+        raw_bars = raw_bars_query.all()
 
-        features = features_query.all()
+        # If no raw_bars, try to use features data and convert to raw_bars format
+        if not raw_bars:
+            # Используем прямой SQL запрос для обхода проблемы с типами данных
+            from sqlalchemy import text
+            features_result = db.execute(
+                text("""
+                    SELECT timestamp, "Close", "Open_Interest", log_return, "SP500_log_return",
+                           price_range, price_change, high_to_prev_close, low_to_prev_close,
+                           volatility_5, volatility_14, volatility_21,
+                           volume_ma_5, volume_ma_14, volume_ma_21, volume_zscore,
+                           "MACD_safe", "MACDs_safe", "MACDh_safe", "RSI_safe", "ATR_safe_norm",
+                           hour_sin, hour_cos, day_sin, day_cos, month_sin, month_cos
+                    FROM btc_features_1h
+                    WHERE timestamp >= :from_time AND timestamp <= :to_time
+                    ORDER BY timestamp ASC
+                """),
+                {"from_time": from_time, "to_time": to_time}
+            )
+            features_rows = features_result.fetchall()
+            
+            # Convert features to raw_bars format (approximation)
+            raw_bars_data = []
+            for row in features_rows:
+                if row[1] is not None:  # Close price
+                    # Estimate OHLC from Close price (simplified)
+                    close = float(row[1])
+                    timestamp = row[0]
+                    if timestamp:
+                        # Ensure timestamp is timezone-aware and convert to ISO format
+                        if timestamp.tzinfo is None:
+                            from datetime import timezone
+                            timestamp = timestamp.replace(tzinfo=timezone.utc)
+                        raw_bars_data.append({
+                            "timestamp": timestamp.isoformat(),
+                            "symbol": "BTCUSDT",
+                            "open": close,  # Approximation
+                            "high": close * 1.01,  # Approximation
+                            "low": close * 0.99,  # Approximation
+                            "close": close,
+                            "volume": float(row[13]) if row[13] is not None else 100.0,  # volume_ma_5
+                        })
+            
+            # Убеждаемся, что данные отсортированы по timestamp
+            raw_bars_data.sort(key=lambda x: x["timestamp"])
+        else:
+            # Format raw bars data for frontend
+            raw_bars_data = []
+            for bar in raw_bars:
+                raw_bars_data.append({
+                    "timestamp": bar.timestamp.isoformat(),
+                    "symbol": bar.symbol or "BTCUSDT",
+                    "open": float(bar.open_price),
+                    "high": float(bar.high_price),
+                    "low": float(bar.low_price),
+                    "close": float(bar.close_price),
+                    "volume": float(bar.volume),
+                })
 
         # Query predictions data
         predictions_query = (
@@ -135,58 +193,79 @@ async def get_history(
             .filter(
                 and_(Prediction.time >= from_time, Prediction.time <= to_time)
             )
-            .order_by(Prediction.time)
+            .order_by(Prediction.time.asc())
         )
 
         predictions = predictions_query.all()
 
-        # Format features data
-        features_data = []
-        for feat in features:
-            features_data.append(
-                {
-                    "timestamp": feat.timestamp.isoformat(),
-                    "close": feat.Close,
-                    "open_interest": feat.Open_Interest,
-                    "sp500_close": feat.SP500_Close,
-                    "log_return": feat.log_return,
-                    "volatility_5": feat.volatility_5,
-                    "volatility_14": feat.volatility_14,
-                    "rsi_safe": feat.RSI_safe,
-                    "macd_safe": feat.MACD_safe,
-                }
-            )
-
-        # Format predictions data
+        # Format predictions data for frontend
         predictions_data = []
         for pred in predictions:
-            predictions_data.append(
-                {
-                    "time": pred.time.isoformat(),
-                    "model_name": pred.model_name,
-                    "target_hours": pred.target_hours,
-                    "prediction_log_return": pred.prediction_log_return,
-                    "ci_low": pred.ci_low,
-                    "ci_high": pred.ci_high,
-                    "predicted_time": (
-                        pred.time + timedelta(hours=pred.target_hours)
-                    ).isoformat(),
-                }
-            )
+            # Get the last close price to calculate predicted_value from log_return
+            last_close = None
+            if raw_bars_data:
+                last_close = raw_bars_data[-1]["close"]
+            elif pred.prediction_log_return is not None:
+                # If we have log_return but no close price, we can't calculate absolute value
+                # Frontend will need to handle this
+                pass
+            
+            # Calculate predicted_value from log_return if we have close price
+            predicted_value = None
+            if pred.prediction_log_return is not None and last_close:
+                predicted_value = last_close * (1 + pred.prediction_log_return)
+            
+            # Map model_name to frontend format
+            model_name = pred.model_name or "linear_regression"
+            if "LinearRegression" in model_name or "LR" in model_name:
+                model_name = "linear_regression"
+            elif "XGBoost" in model_name or "XGB" in model_name:
+                model_name = "xgboost"
+            elif "LSTM" in model_name:
+                model_name = "lstm"
+            
+            # Ensure timestamp is timezone-aware
+            pred_time = pred.time
+            if pred_time.tzinfo is None:
+                from datetime import timezone
+                pred_time = pred_time.replace(tzinfo=timezone.utc)
+            
+            # Convert CI from log_return to absolute price values for frontend
+            ci_low_price = None
+            ci_high_price = None
+            if pred.ci_low is not None and pred.ci_high is not None and last_close:
+                # CI в log_return, конвертируем в абсолютные значения цены
+                ci_low_price = last_close * (1 + pred.ci_low)
+                ci_high_price = last_close * (1 + pred.ci_high)
+            
+            predictions_data.append({
+                "timestamp": pred_time.isoformat(),
+                "prediction_horizon": pred.target_hours,
+                "predicted_value": predicted_value,
+                "predicted_time": (
+                    pred_time + timedelta(hours=pred.target_hours)
+                ).isoformat(),
+                "model": model_name,
+                "ci_low": ci_low_price,  # CI в абсолютных значениях цены
+                "ci_high": ci_high_price,
+            })
+        
+        # Убеждаемся, что predictions отсортированы по timestamp
+        predictions_data.sort(key=lambda x: x["timestamp"])
 
         return {
             "status": "success",
             "data": {
-                "features": features_data,
+                "raw_bars": raw_bars_data,
                 "predictions": predictions_data,
-                "time_range": {
-                    "from": from_time.isoformat(),
-                    "to": to_time.isoformat(),
-                },
             },
             "metadata": {
-                "features_count": len(features_data),
+                "bars_count": len(raw_bars_data),
                 "predictions_count": len(predictions_data),
+            },
+            "time_range": {
+                "from": from_time.isoformat(),
+                "to": to_time.isoformat(),
             },
         }
 
@@ -459,9 +538,8 @@ async def get_latest_features(
                     "timestamp": feat.timestamp.isoformat(),
                     "close": feat.Close,
                     "open_interest": feat.Open_Interest,
-                    "sp500_close": feat.SP500_Close,
                     "log_return": feat.log_return,
-                    "sp500_log_return": feat.SP500_log_return,
+                    "sp500_log_return": feat.sp500_log_return,
                     "price_range": feat.price_range,
                     "price_change": feat.price_change,
                     "volatility_5": feat.volatility_5,
@@ -469,9 +547,9 @@ async def get_latest_features(
                     "volatility_21": feat.volatility_21,
                     "volume_ma_5": feat.volume_ma_5,
                     "volume_zscore": feat.volume_zscore,
-                    "rsi_safe": feat.RSI_safe,
-                    "macd_safe": feat.MACD_safe,
-                    "atr_safe_norm": feat.ATR_safe_norm,
+                    "rsi_safe": feat.rsi_safe,
+                    "macd_safe": feat.macd_safe,
+                    "atr_safe_norm": feat.atr_safe_norm,
                 }
             )
 
@@ -535,9 +613,8 @@ async def get_features(
                     "timestamp": feat.timestamp.isoformat(),
                     "close": feat.Close,
                     "open_interest": feat.Open_Interest,
-                    "sp500_close": feat.SP500_Close,
                     "log_return": feat.log_return,
-                    "sp500_log_return": feat.SP500_log_return,
+                    "sp500_log_return": feat.sp500_log_return,
                     "price_range": feat.price_range,
                     "price_change": feat.price_change,
                     "volatility_5": feat.volatility_5,
@@ -547,11 +624,11 @@ async def get_features(
                     "volume_ma_14": feat.volume_ma_14,
                     "volume_ma_21": feat.volume_ma_21,
                     "volume_zscore": feat.volume_zscore,
-                    "rsi_safe": feat.RSI_safe,
-                    "macd_safe": feat.MACD_safe,
-                    "macds_safe": feat.MACDs_safe,
-                    "macdh_safe": feat.MACDh_safe,
-                    "atr_safe_norm": feat.ATR_safe_norm,
+                    "rsi_safe": feat.rsi_safe,
+                    "macd_safe": feat.macd_safe,
+                    "macds_safe": feat.macds_safe,
+                    "macdh_safe": feat.macdh_safe,
+                    "atr_safe_norm": feat.atr_safe_norm,
                     "hour_sin": feat.hour_sin,
                     "hour_cos": feat.hour_cos,
                     "day_sin": feat.day_sin,

@@ -1,4 +1,4 @@
-FROM python:3.9-slim
+FROM python:3.12-slim
 
 # Set working directory
 WORKDIR /app
@@ -15,6 +15,15 @@ COPY requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Install ML scripts dependencies
+# Note: pandas_ta requires Python 3.12+
+RUN pip install --no-cache-dir \
+    pandas_ta \
+    ccxt \
+    yfinance \
+    xgboost \
+    tensorflow
 
 # Copy application code
 COPY . .

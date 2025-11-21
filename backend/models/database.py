@@ -3,12 +3,13 @@ from sqlalchemy import (
     Column,
     Integer,
     Float,
+    Numeric,
     DateTime,
     String,
     JSON,
     Index,
 )
-from sqlalchemy.dialects.postgresql import JSONB, DOUBLE_PRECISION
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -99,41 +100,40 @@ class BTCFeature(Base):
     timestamp = Column(DateTime(timezone=False), primary_key=True, nullable=False, index=True)
     
     # Basic price data
-    Close = Column(DOUBLE_PRECISION, nullable=True)
-    Open_Interest = Column(DOUBLE_PRECISION, nullable=True)
-    SP500_Close = Column(DOUBLE_PRECISION, nullable=True)
+    Close = Column(Numeric, nullable=True)
+    Open_Interest = Column(Numeric, nullable=True)
     
     # Returns and price changes
-    log_return = Column(DOUBLE_PRECISION, nullable=True)
-    SP500_log_return = Column(DOUBLE_PRECISION, nullable=True)
-    price_range = Column(DOUBLE_PRECISION, nullable=True)
-    price_change = Column(DOUBLE_PRECISION, nullable=True)
-    high_to_prev_close = Column(DOUBLE_PRECISION, nullable=True)
-    low_to_prev_close = Column(DOUBLE_PRECISION, nullable=True)
+    log_return = Column(Numeric, nullable=True)
+    sp500_log_return = Column("SP500_log_return", Numeric, nullable=True)
+    price_range = Column(Numeric, nullable=True)
+    price_change = Column(Numeric, nullable=True)
+    high_to_prev_close = Column(Numeric, nullable=True)
+    low_to_prev_close = Column(Numeric, nullable=True)
     
     # Volatility and volume
-    volatility_5 = Column(DOUBLE_PRECISION, nullable=True)
-    volatility_14 = Column(DOUBLE_PRECISION, nullable=True)
-    volatility_21 = Column(DOUBLE_PRECISION, nullable=True)
-    volume_ma_5 = Column(DOUBLE_PRECISION, nullable=True)
-    volume_ma_14 = Column(DOUBLE_PRECISION, nullable=True)
-    volume_ma_21 = Column(DOUBLE_PRECISION, nullable=True)
-    volume_zscore = Column(DOUBLE_PRECISION, nullable=True)
+    volatility_5 = Column(Numeric, nullable=True)
+    volatility_14 = Column(Numeric, nullable=True)
+    volatility_21 = Column(Numeric, nullable=True)
+    volume_ma_5 = Column(Numeric, nullable=True)
+    volume_ma_14 = Column(Numeric, nullable=True)
+    volume_ma_21 = Column(Numeric, nullable=True)
+    volume_zscore = Column(Numeric, nullable=True)
     
     # Technical indicators
-    MACD_safe = Column(DOUBLE_PRECISION, nullable=True)
-    MACDs_safe = Column(DOUBLE_PRECISION, nullable=True)
-    MACDh_safe = Column(DOUBLE_PRECISION, nullable=True)
-    RSI_safe = Column(DOUBLE_PRECISION, nullable=True)
-    ATR_safe_norm = Column(DOUBLE_PRECISION, nullable=True)
+    macd_safe = Column("MACD_safe", Numeric, nullable=True)
+    macds_safe = Column("MACDs_safe", Numeric, nullable=True)
+    macdh_safe = Column("MACDh_safe", Numeric, nullable=True)
+    rsi_safe = Column("RSI_safe", Numeric, nullable=True)
+    atr_safe_norm = Column("ATR_safe_norm", Numeric, nullable=True)
     
     # Temporal features
-    hour_sin = Column(DOUBLE_PRECISION, nullable=True)
-    hour_cos = Column(DOUBLE_PRECISION, nullable=True)
-    day_sin = Column(DOUBLE_PRECISION, nullable=True)
-    day_cos = Column(DOUBLE_PRECISION, nullable=True)
-    month_sin = Column(DOUBLE_PRECISION, nullable=True)
-    month_cos = Column(DOUBLE_PRECISION, nullable=True)
+    hour_sin = Column(Numeric, nullable=True)
+    hour_cos = Column(Numeric, nullable=True)
+    day_sin = Column(Numeric, nullable=True)
+    day_cos = Column(Numeric, nullable=True)
+    month_sin = Column(Numeric, nullable=True)
+    month_cos = Column(Numeric, nullable=True)
     
     __table_args__ = (
         Index('idx_features_timestamp', 'timestamp', unique=True),

@@ -325,8 +325,8 @@ def run_prediction():
                 model_name = f"{model_name_full}_log_return_{h}h"
                 
                 # ⚠️ НОВОЕ: Расчет доверительного интервала (CI)
-                # Получаем RMSE (если нет, используем 0)
-                rmse = MODEL_ERRORS.get(model_name, 0)
+                # Получаем RMSE (используем базовое имя модели, т.к. в model_errors.json ключи без суффикса)
+                rmse = MODEL_ERRORS.get(model_name_full, 0)
                 ci_margin = Z_SCORE_95 * rmse
                 ci_low = prediction - ci_margin
                 ci_high = prediction + ci_margin
@@ -351,7 +351,9 @@ def run_prediction():
                 
                 # ⚠️ НОВОЕ: Расчет доверительного интервала (CI)
                 prediction = prediction_val
-                rmse = MODEL_ERRORS.get(model_name, 0)
+                # Используем базовое имя модели (без суффикса), т.к. в model_errors.json ключи без суффикса
+                base_model_name = model_name_full  # "LinearRegression" или "XGBoost"
+                rmse = MODEL_ERRORS.get(base_model_name, 0)
                 ci_margin = Z_SCORE_95 * rmse
                 ci_low = prediction - ci_margin
                 ci_high = prediction + ci_margin

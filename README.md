@@ -1,313 +1,245 @@
 # Cryptify - BTC Price Prediction Application
 
-A web application for BTC price prediction with multiple time horizons and ML models, built with Docker containerization.
+A full-stack web application for Bitcoin price prediction using machine learning models, featuring real-time data collection, multiple prediction horizons, and interactive charts.
 
-## Architecture
+## 🏗️ Architecture
 
+- **Frontend**: React + TypeScript + Vite - Modern UI with interactive charts
 - **Backend**: FastAPI (Python) - REST API for data access
-- **Database**: PostgreSQL - Stores historical data and predictions
-- **ML Service**: Python - Data collection, feature engineering, and model training
-- **Frontend**: React/Node.js - User interface with charts
+- **Database**: PostgreSQL - Stores historical data, features, and predictions
+- **ML Pipeline**: Python scripts - Data collection, feature engineering, model training, and inference
 - **Containerization**: Docker & Docker Compose
 
-## Project Structure
+## 📁 Project Structure
 
 ```
-Cryptify/
-├── backend/                 # FastAPI backend service
-│   ├── app/                # FastAPI application
-│   │   ├── main.py         # Main FastAPI app with endpoints
-│   │   └── __init__.py
-│   ├── models/             # Database models
-│   │   ├── database.py     # SQLAlchemy models and DB connection
-│   │   └── __init__.py
-│   ├── services/           # 🆕 Business logic services
-│   │   ├── model_service.py # ML model management service
-│   │   └── __init__.py
-│   ├── trained_models/     # 🆕 Directory for ML model files
-│   ├── requirements.txt    # Python dependencies
-│   ├── Dockerfile         # Backend container configuration
-│   ├── run_dev.py         # Development server runner
-│   ├── API_DOCUMENTATION.md # 🆕 Detailed API documentation
-│   └── env.example        # Environment variables template
-├── docker/                 # Docker configuration
-│   └── init.sql           # Database initialization script
-├── docker-compose.yml     # Multi-container orchestration
-└── README.md              # This file
+Cryptify-dev/
+├── frontend/              # React frontend application
+│   ├── src/              # Source code
+│   │   ├── components/   # React components
+│   │   ├── services/     # API service
+│   │   └── types/        # TypeScript types
+│   ├── package.json      # Node.js dependencies
+│   └── vite.config.ts    # Vite configuration
+├── backend/              # FastAPI backend service
+│   ├── app/              # FastAPI application
+│   │   └── main.py       # Main API endpoints
+│   ├── models/           # Database models (SQLAlchemy)
+│   ├── services/         # Business logic services
+│   ├── schemas/          # Pydantic schemas
+│   ├── requirements.txt  # Python dependencies
+│   └── Dockerfile        # Backend container config
+├── scripts/              # ML pipeline scripts
+│   ├── data_collector.py      # Data collection from exchanges
+│   ├── multi_model_trainer.py # Model training
+│   ├── predictor.py           # Inference/prediction
+│   └── requirements.txt       # ML dependencies
+├── docker/               # Docker configuration
+│   └── init.sql         # Database initialization
+└── docker-compose.yml   # Multi-container orchestration
 ```
 
-## Quick Start
+## 🚀 Quick Start
 
 ### Prerequisites
 
 - Docker and Docker Compose
-- Python 3.9+ (for local development)
-- Conda (optional, for environment management)
+- Node.js 18+ (for frontend development)
+- Python 3.12+ (for local development, optional)
 
-### 1. Environment Setup
-
-```bash
-# Clone and navigate to project
-cd /path/to/Cryptify
-
-# Create conda environment (optional)
-conda create -n criptify python=3.9 -y
-conda activate criptify
-
-# Install dependencies
-pip install -r backend/requirements.txt
-```
-
-### 2. Environment Configuration
+### 1. Start Backend Services
 
 ```bash
-# Copy environment template
-cp backend/env.example backend/.env
+# Start PostgreSQL and FastAPI backend
+docker-compose up -d
 
-# Edit .env file with your database credentials
-nano backend/.env
+# Check services status
+docker-compose ps
+
+# View backend logs
+docker-compose logs -f backend
 ```
 
-### 3. Docker Deployment
+Backend will be available at: `http://localhost:8000`
+
+- API docs: `http://localhost:8000/docs`
+- Health check: `http://localhost:8000/health`
+
+### 2. Start Frontend
+
+```bash
+cd frontend
+
+# Install dependencies (first time only)
+npm install
+
+# Start development server
+npm run dev
+```
+
+Frontend will be available at: `http://localhost:5173`
+
+### 3. Collect Data and Generate Predictions
+
+```bash
+# Collect historical data (this may take a few minutes)
+curl -X POST http://localhost:8000/ml/data-collector/run \
+  -H "Content-Type: application/json" \
+  -d '{"mode": "incremental", "timeout": 1800}'
+
+# Generate predictions
+curl -X POST http://localhost:8000/ml/predictor/run \
+  -H "Content-Type: application/json" \
+  -d '{"timeout": 300}'
+```
+
+Or use the API documentation at `http://localhost:8000/docs` to run these endpoints interactively.
+
+## 📊 Features
+
+- **Real-time Data Collection**: Automated collection of BTC/USDT OHLCV data from Binance
+- **Feature Engineering**: Technical indicators (RSI, MACD, ATR, etc.) and temporal features
+- **Multiple ML Models**:
+  - Linear Regression
+  - XGBoost
+  - LSTM (Neural Network)
+- **Multiple Prediction Horizons**: 6h, 12h, 24h ahead
+- **Interactive Charts**: Real-time price charts with prediction overlays
+- **RESTful API**: Comprehensive API for data access and ML operations
+
+## 🔧 Configuration
+
+### Environment Variables
+
+Backend environment variables (see `backend/env.example`):
+
+- `DATABASE_URL`: PostgreSQL connection string
+- `API_HOST`: API host (default: 0.0.0.0)
+- `API_PORT`: API port (default: 8000)
+
+Frontend environment variables (optional):
+
+- `VITE_API_URL`: Backend API URL (default: `/api` - uses proxy)
+
+### Database
+
+Default PostgreSQL credentials (configured in `docker-compose.yml`):
+
+- Database: `criptify_db`
+- User: `criptify_user`
+- Password: `criptify_password`
+- Port: `5432`
+
+## 📡 API Endpoints
+
+### Health & Status
+
+- `GET /health` - Health check
+- `GET /ml/scripts/status/{script_name}` - Check ML script status
+
+### Data Access
+
+- `GET /history` - Get historical data and predictions
+- `GET /features/latest` - Get latest features
+- `GET /predictions/latest` - Get latest predictions
+
+### ML Operations
+
+- `POST /ml/data-collector/run` - Run data collection
+- `POST /ml/predictor/run` - Generate predictions
+- `POST /ml/trainer/run` - Train models
+
+See full API documentation at `http://localhost:8000/docs` when backend is running.
+
+## 🛠️ Development
+
+### Backend Development
+
+```bash
+# Run backend locally (without Docker)
+cd backend
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Frontend Development
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### ML Scripts Development
+
+```bash
+cd scripts
+pip install -r requirements.txt
+
+# Run data collection
+python data_collector.py
+
+# Train models
+python multi_model_trainer.py
+
+# Generate predictions
+python predictor.py
+```
+
+## 🐳 Docker Commands
 
 ```bash
 # Start all services
 docker-compose up -d
 
-# Check service status
-docker-compose ps
-
-# View logs
-docker-compose logs -f backend
-```
-
-### 4. Local Development
-
-```bash
-# Start PostgreSQL only
-docker-compose up -d postgres
-
-# Run backend locally
-cd backend
-python run_dev.py
-```
-
-## API Endpoints
-
-### Core Endpoints
-
-#### Health Check
-```bash
-GET /health
-```
-
-#### Historical Data
-```bash
-GET /history?from_time=2024-01-01T00:00:00&to_time=2024-01-07T23:59:59
-```
-
-#### Latest Predictions
-```bash
-GET /predictions/latest?limit=10&model_name=baseline&horizon=3
-```
-
-#### Model Metrics
-```bash
-GET /metrics/latest?model_name=baseline
-```
-
-### 🆕 Model Management Endpoints
-
-#### List Available Models
-```bash
-GET /models
-```
-
-#### Register New Model
-```bash
-POST /models/register
-Content-Type: application/json
-
-{
-  "model_name": "random_forest_v1",
-  "model_type": "RandomForest",
-  "prediction_horizons": [1, 3, 24, 168],
-  "file_path": "/app/trained_models/rf_model.joblib"
-}
-```
-
-### 🆕 Prediction Endpoints
-
-#### Make Prediction (POST)
-```bash
-POST /predict
-Content-Type: application/json
-
-{
-  "model_name": "baseline",
-  "prediction_horizon": 24,
-  "save_to_db": true
-}
-```
-
-#### Make Prediction (GET)
-```bash
-GET /predict/{model_name}/{horizon}?save_to_db=true
-
-# Example
-GET /predict/baseline/3
-GET /predict/baseline/24
-GET /predict/baseline/168
-```
-
-### Supported Time Horizons
-
-| Horizon | Hours | Use Case |
-|---------|-------|----------|
-| 1h      | 1     | Very short-term trading |
-| 3h      | 3     | Short-term trading |
-| 1d      | 24    | Day trading |
-| 1w      | 168   | Swing trading |
-
-**Note**: Check model's supported horizons via `GET /models`
-
-## Database Schema
-
-### Tables
-
-1. **raw_bars** - OHLCV data from Bybit API
-2. **predictions** - ML model predictions (now includes `model_name` and configurable `prediction_horizon`)
-3. **model_metrics** - Model performance metrics
-4. **ml_features** - Engineered features for ML pipeline
-5. **ml_models** - 🆕 Model registry for managing multiple trained models
-
-## 📚 Documentation
-
-For detailed API documentation, see [API_DOCUMENTATION.md](backend/API_DOCUMENTATION.md)
-
-Interactive API docs available at:
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-
-## Usage Examples
-
-### Make a Prediction
-
-```bash
-# Using cURL
-curl -X POST http://localhost:8000/predict \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model_name": "baseline",
-    "prediction_horizon": 24,
-    "save_to_db": true
-  }'
-
-# Or use the GET endpoint
-curl http://localhost:8000/predict/baseline/3
-```
-
-### List Available Models
-
-```bash
-curl http://localhost:8000/models
-```
-
-### Get Predictions with Filters
-
-```bash
-# Get last 5 predictions from baseline model with 24h horizon
-curl "http://localhost:8000/predictions/latest?model_name=baseline&horizon=24&limit=5"
-```
-
-### Python Example
-
-```python
-import requests
-
-# Make a prediction
-response = requests.post(
-    "http://localhost:8000/predict",
-    json={
-        "model_name": "baseline",
-        "prediction_horizon": 3,
-        "save_to_db": True
-    }
-)
-result = response.json()
-print(f"Predicted price in 3h: ${result['predicted_value']:.2f}")
-print(f"Current price: ${result['current_price']:.2f}")
-```
-
-## Useful Commands
-
-### Docker Commands
-
-```bash
-# Start services
-docker-compose up -d
-
-# Stop services
+# Stop all services
 docker-compose down
-
-# Rebuild and start
-docker-compose up --build -d
 
 # View logs
 docker-compose logs -f [service_name]
 
-# Execute commands in container
+# Rebuild containers
+docker-compose build --no-cache
+
+# Access PostgreSQL
+docker-compose exec postgres psql -U criptify_user -d criptify_db
+
+# Access backend container
 docker-compose exec backend bash
-docker-compose exec postgres psql -U criptify_user -d criptify_db
-
-# Clean up
-docker-compose down -v  # Removes volumes
-docker system prune -a  # Removes all unused containers/images
 ```
 
-### Database Commands
+## 📝 License
 
-```bash
-# Connect to database
-docker-compose exec postgres psql -U criptify_user -d criptify_db
+See [LICENSE](LICENSE) file for details.
 
-# Backup database
-docker-compose exec postgres pg_dump -U criptify_user criptify_db > backup.sql
+## 🤝 Contributing
 
-# Restore database
-docker-compose exec -T postgres psql -U criptify_user -d criptify_db < backup.sql
-```
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
 
-### Development Commands
+## 🚀 Deployment
 
-```bash
-# Run backend locally
-cd backend
-python run_dev.py
+For detailed deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
-# Install new dependencies
-pip install package_name
-pip freeze > requirements.txt
+### Quick Deployment Steps
 
-# Run tests (when implemented)
-pytest
+1. Clone repository on your server
+2. Run `docker-compose up -d`
+3. Setup cron jobs: `./scripts/setup_cron.sh`
+4. Configure Nginx (see DEPLOYMENT.md)
+5. Run initial data collection and training
 
-# Format code
-black .
-isort .
-```
+### Automation
 
+The project includes automated tasks:
 
-## Environment Variables
+- **Data Collection**: Runs every hour via cron
+- **Model Retraining**: Runs every Sunday at 2 AM via cron
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://criptify_user:criptify_password@localhost:5432/criptify_db` |
-| `API_HOST` | API server host | `0.0.0.0` |
-| `API_PORT` | API server port | `8000` |
-| `ENVIRONMENT` | Environment type | `development` |
+See `scripts/` directory for automation scripts.
 
+## 📧 Support
 
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+For issues and questions, please open an issue on GitHub.
