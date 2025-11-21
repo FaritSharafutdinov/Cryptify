@@ -21,13 +21,23 @@ from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.metrics import MeanSquaredError # Добавлен импорт для load_model
 
 # --- КОНФИГУРАЦИЯ DB ---
-DB_USER = "user"
-DB_PASSWORD = "password"
-DB_HOST = "db"
-DB_NAME = "my_database"
-DB_PORT = "5432"
+# Импортируем настройки из общего конфига
+try:
+    from config import DATABASE_URL, DB_TABLE_FEATURES, TARGET_HORIZONS
+    DB_TABLE_FEATURES = DB_TABLE_FEATURES
+    TARGET_HORIZONS = TARGET_HORIZONS
+except ImportError:
+    # Fallback для обратной совместимости
+    import os
+    DB_USER = os.getenv("DB_USER", "criptify_user")
+    DB_PASSWORD = os.getenv("DB_PASSWORD", "criptify_password")
+    DB_HOST = os.getenv("DB_HOST", "localhost")
+    DB_NAME = os.getenv("DB_NAME", "criptify_db")
+    DB_PORT = os.getenv("DB_PORT", "5432")
+    DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    DB_TABLE_FEATURES = "btc_features_1h"
+    TARGET_HORIZONS = [6, 12, 24]
 
-DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 ENGINE = create_engine(DATABASE_URL)
 
 # --- ПАРАМЕТРЫ МОДЕЛЕЙ ---
@@ -49,7 +59,7 @@ def load_data():
     """Загружает все данные из новой таблицы btc_features_1h."""
     print("Загрузка данных из новой таблицы features...")
 
-    sql_query = "SELECT * FROM btc_features_1h ORDER BY timestamp ASC;"
+    sql_query = f"SELECT * FROM {DB_TABLE_FEATURES} ORDER BY timestamp ASC;"
 
     try:
         df = pd.read_sql(

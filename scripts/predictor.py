@@ -22,11 +22,24 @@ except ImportError:
     MeanSquaredError = None
 
 # --- КОНСТАНТЫ И НАСТРОЙКИ ---
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_USER = os.getenv("DB_USER", "user")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "password")
-DB_NAME = os.getenv("DB_NAME", "my_database")
-DB_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:5432/{DB_NAME}"
+# Импортируем настройки из общего конфига
+try:
+    from config import (
+        DATABASE_URL_SQLALCHEMY, DB_TABLE_FEATURES, TARGET_HORIZONS
+    )
+    DB_URL = DATABASE_URL_SQLALCHEMY
+    DB_TABLE_FEATURES = DB_TABLE_FEATURES
+    TARGET_HORIZONS = TARGET_HORIZONS
+except ImportError:
+    # Fallback для обратной совместимости
+    DB_HOST = os.getenv("DB_HOST", "localhost")
+    DB_USER = os.getenv("DB_USER", "criptify_user")
+    DB_PASSWORD = os.getenv("DB_PASSWORD", "criptify_password")
+    DB_NAME = os.getenv("DB_NAME", "criptify_db")
+    DB_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:5432/{DB_NAME}"
+    DB_TABLE_FEATURES = "btc_features_1h"
+    TARGET_HORIZONS = [6, 12, 24]
+
 ENGINE = create_engine(DB_URL)
 
 MODEL_DIR = "."  # Модели хранятся в текущей директории
@@ -35,7 +48,7 @@ Z_SCORE_95 = 1.96
 MODEL_ERRORS = {}
 
 # ⚠️ ИМЯ ТАБЛИЦЫ ФИЧЕЙ ДОЛЖНО СООТВЕТСТВОВАТЬ data_collector.py
-DB_TABLE_FEATURES = "btc_features_1h" 
+# DB_TABLE_FEATURES уже импортирован выше
 LSTM_TIME_STEPS = 48 # Окно для LSTM
 
 # 🔑 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: СПИСОК ПРИЗНАКОВ для фильтрации

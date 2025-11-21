@@ -26,14 +26,29 @@ BASE_URL_BYBIT = "https://api.bybit.com"
 ENDPOINT_OI_BYBIT = "/v5/market/open-interest"
 
 # --- КОНФИГУРАЦИЯ БАЗЫ ДАННЫХ (DB) ---
-DB_USER = "user"
-DB_PASSWORD = "password"
-DB_HOST = "db"
-DB_NAME = "my_database"
-DB_PORT = "5432"
-# Таблица для сохранения финальных фичей (аналог OUTPUT_FILENAME)
-DB_TABLE = "btc_features_1h" 
-DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+# Импортируем настройки из общего конфига
+try:
+    # Пытаемся импортировать из корневого config.py
+    import sys
+    from pathlib import Path
+    project_root = Path(__file__).parent.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+    from config import (
+        DB_USER, DB_PASSWORD, DB_HOST, DB_NAME, DB_PORT,
+        DATABASE_URL, DB_TABLE_FEATURES
+    )
+    DB_TABLE = DB_TABLE_FEATURES
+except ImportError:
+    # Fallback для обратной совместимости
+    import os
+    DB_USER = os.getenv("DB_USER", "criptify_user")
+    DB_PASSWORD = os.getenv("DB_PASSWORD", "criptify_password")
+    DB_HOST = os.getenv("DB_HOST", "localhost")
+    DB_NAME = os.getenv("DB_NAME", "criptify_db")
+    DB_PORT = os.getenv("DB_PORT", "5432")
+    DB_TABLE = "btc_features_1h"
+    DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 # --- Конфигурация Пайплайна ---
 # Сколько последних баров нужно загрузить, чтобы покрыть максимальное окно

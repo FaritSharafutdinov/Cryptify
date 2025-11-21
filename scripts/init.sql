@@ -42,8 +42,6 @@ CREATE TABLE IF NOT EXISTS btc_features_1h (
     day_cos DOUBLE PRECISION,
     month_sin DOUBLE PRECISION,
     month_cos DOUBLE PRECISION,
-    ci_low DOUBLE PRECISION,
-    ci_high DOUBLE PRECISION;
     
     -- Определение первичного ключа для обеспечения уникальности
     PRIMARY KEY (timestamp)

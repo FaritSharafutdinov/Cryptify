@@ -1,17 +1,32 @@
-from fastapi import FastAPI, Depends, HTTPException, Query, Body
+from fastapi import FastAPI, Depends, HTTPException, Query, Body, status as http_status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, and_
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 import sys
 import os
+import logging
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from models.database import get_db, RawBar, Prediction, ModelMetric
+from models.database import get_db, RawBar, Prediction, ModelMetric, MLModel, BTCFeature
 from services.model_service import ModelService
+from services.ml_script_service import MLScriptService
+from schemas.validation import (
+    ScriptRunRequest,
+    TrainerRunRequest,
+    DataCollectorRunRequest,
+    PredictionRunRequest,
+    ScriptStatusResponse,
+    ErrorResponse
+)
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Criptify Backend API",
@@ -28,8 +43,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize model service
+# Initialize services
 model_service = ModelService(models_directory="/app/trained_models")
+ml_script_service = MLScriptService()
+
+# Глобальный обработчик ошибок
+@app.exception_handler(ValidationError)
+async def validation_exception_handler(request, exc: ValidationError):
+    """Обработчик ошибок валидации Pydantic"""
+    return JSONResponse(
+        status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=ErrorResponse(
+            error="Ошибка валидации данных",
+            details={"errors": exc.errors()}
+        ).dict()
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc: Exception):
+    """Глобальный обработчик исключений"""
+    logger.error(f"Необработанная ошибка: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content=ErrorResponse(
+            error="Внутренняя ошибка сервера",
+            details={"message": str(exc)}
+        ).dict()
+    )
 
 
 # Pydantic models for request/response
@@ -71,7 +111,7 @@ async def get_history(
     """
     Get historical data and predictions for the specified time range.
 
-    Returns combined data from raw_bars and predictions tables.
+    Returns combined data from btc_features_1h and predictions tables.
     """
     try:
         # Set default time range if not provided (last 7 days)
@@ -80,38 +120,40 @@ async def get_history(
         if not to_time:
             to_time = datetime.utcnow()
 
-        # Query raw bars data
-        raw_bars_query = (
-            db.query(RawBar)
-            .filter(and_(RawBar.timestamp >= from_time, RawBar.timestamp <= to_time))
-            .order_by(RawBar.timestamp)
+        # Query features data (from ML pipeline)
+        features_query = (
+            db.query(BTCFeature)
+            .filter(and_(BTCFeature.timestamp >= from_time, BTCFeature.timestamp <= to_time))
+            .order_by(BTCFeature.timestamp)
         )
 
-        raw_bars = raw_bars_query.all()
+        features = features_query.all()
 
         # Query predictions data
         predictions_query = (
             db.query(Prediction)
             .filter(
-                and_(Prediction.timestamp >= from_time, Prediction.timestamp <= to_time)
+                and_(Prediction.time >= from_time, Prediction.time <= to_time)
             )
-            .order_by(Prediction.timestamp)
+            .order_by(Prediction.time)
         )
 
         predictions = predictions_query.all()
 
-        # Format raw bars data
-        bars_data = []
-        for bar in raw_bars:
-            bars_data.append(
+        # Format features data
+        features_data = []
+        for feat in features:
+            features_data.append(
                 {
-                    "timestamp": bar.timestamp.isoformat(),
-                    "symbol": bar.symbol,
-                    "open": bar.open_price,
-                    "high": bar.high_price,
-                    "low": bar.low_price,
-                    "close": bar.close_price,
-                    "volume": bar.volume,
+                    "timestamp": feat.timestamp.isoformat(),
+                    "close": feat.Close,
+                    "open_interest": feat.Open_Interest,
+                    "sp500_close": feat.SP500_Close,
+                    "log_return": feat.log_return,
+                    "volatility_5": feat.volatility_5,
+                    "volatility_14": feat.volatility_14,
+                    "rsi_safe": feat.RSI_safe,
+                    "macd_safe": feat.MACD_safe,
                 }
             )
 
@@ -120,11 +162,14 @@ async def get_history(
         for pred in predictions:
             predictions_data.append(
                 {
-                    "timestamp": pred.timestamp.isoformat(),
-                    "prediction_horizon": pred.prediction_horizon,
-                    "predicted_value": pred.predicted_value,
+                    "time": pred.time.isoformat(),
+                    "model_name": pred.model_name,
+                    "target_hours": pred.target_hours,
+                    "prediction_log_return": pred.prediction_log_return,
+                    "ci_low": pred.ci_low,
+                    "ci_high": pred.ci_high,
                     "predicted_time": (
-                        pred.timestamp + timedelta(hours=pred.prediction_horizon)
+                        pred.time + timedelta(hours=pred.target_hours)
                     ).isoformat(),
                 }
             )
@@ -132,7 +177,7 @@ async def get_history(
         return {
             "status": "success",
             "data": {
-                "raw_bars": bars_data,
+                "features": features_data,
                 "predictions": predictions_data,
                 "time_range": {
                     "from": from_time.isoformat(),
@@ -140,13 +185,19 @@ async def get_history(
                 },
             },
             "metadata": {
-                "bars_count": len(bars_data),
+                "features_count": len(features_data),
                 "predictions_count": len(predictions_data),
             },
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error retrieving data: {str(e)}")
+        logger.error(f"Ошибка при получении истории: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка получения данных: {str(e)}"
+        )
 
 
 @app.get("/predictions/latest")
@@ -155,32 +206,47 @@ async def get_latest_predictions(
         10, ge=1, le=100, description="Number of latest predictions to return"
     ),
     model_name: Optional[str] = Query(None, description="Filter by model name"),
-    horizon: Optional[int] = Query(None, description="Filter by prediction horizon"),
+    horizon: Optional[int] = Query(None, ge=1, le=168, description="Filter by prediction horizon (target_hours)"),
     db: Session = Depends(get_db),
 ):
-    """Get the latest predictions with optional filters"""
+    """Get the latest predictions from ML models with optional filters"""
     try:
+        # Валидация параметров
+        if limit < 1 or limit > 100:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="Параметр limit должен быть от 1 до 100"
+            )
+        
+        if horizon is not None and (horizon < 1 or horizon > 168):
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="Параметр horizon должен быть от 1 до 168 часов"
+            )
         query = db.query(Prediction)
 
         # Apply filters
         if model_name:
             query = query.filter(Prediction.model_name == model_name)
         if horizon:
-            query = query.filter(Prediction.prediction_horizon == horizon)
+            query = query.filter(Prediction.target_hours == horizon)
 
-        predictions = query.order_by(desc(Prediction.timestamp)).limit(limit).all()
+        predictions = query.order_by(desc(Prediction.time)).limit(limit).all()
 
         predictions_data = []
         for pred in predictions:
             predictions_data.append(
                 {
-                    "timestamp": pred.timestamp.isoformat(),
+                    "time": pred.time.isoformat(),
                     "model_name": pred.model_name,
-                    "prediction_horizon": pred.prediction_horizon,
-                    "predicted_value": pred.predicted_value,
+                    "target_hours": pred.target_hours,
+                    "prediction_log_return": pred.prediction_log_return,
+                    "ci_low": pred.ci_low,
+                    "ci_high": pred.ci_high,
                     "predicted_time": (
-                        pred.timestamp + timedelta(hours=pred.prediction_horizon)
+                        pred.time + timedelta(hours=pred.target_hours)
                     ).isoformat(),
+                    "created_at": pred.created_at.isoformat() if pred.created_at else None,
                 }
             )
 
@@ -190,9 +256,13 @@ async def get_latest_predictions(
             "count": len(predictions_data),
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Ошибка при получении прогнозов: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500, detail=f"Error retrieving predictions: {str(e)}"
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка получения прогнозов: {str(e)}"
         )
 
 
@@ -201,47 +271,65 @@ async def get_latest_metrics(
     model_name: Optional[str] = Query(None, description="Filter by model name"),
     db: Session = Depends(get_db),
 ):
-    """Get the latest model performance metrics"""
+    """Get the latest model performance metrics from ml_models table"""
     try:
-        query = db.query(ModelMetric)
+        query = db.query(MLModel)
 
         if model_name:
-            query = query.filter(ModelMetric.model_name == model_name)
+            query = query.filter(MLModel.model_name == model_name)
 
-        metrics = query.order_by(desc(ModelMetric.created_at)).limit(20).all()
+        models = query.order_by(desc(MLModel.updated_at)).limit(20).all()
 
         metrics_data = []
-        for metric in metrics:
+        for model in models:
             metrics_data.append(
                 {
-                    "model_name": metric.model_name,
-                    "metric_name": metric.metric_name,
-                    "metric_value": metric.metric_value,
-                    "created_at": metric.created_at.isoformat(),
+                    "model_name": model.model_name,
+                    "metrics": model.metrics,  # JSONB field with all metrics
+                    "updated_at": model.updated_at.isoformat() if model.updated_at else None,
                 }
             )
 
         return {"status": "success", "data": metrics_data, "count": len(metrics_data)}
 
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Ошибка при получении метрик: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500, detail=f"Error retrieving metrics: {str(e)}"
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка получения метрик: {str(e)}"
         )
 
 
 @app.get("/models")
 async def list_models(db: Session = Depends(get_db)):
     """
-    Get list of available ML models
+    Get list of available ML models from ml_models table
 
-    Returns all registered and active models with their supported prediction horizons
+    Returns all models with their metrics
     """
     try:
-        models = model_service.get_available_models(db)
-        return {"status": "success", "data": models, "count": len(models)}
+        models = db.query(MLModel).order_by(desc(MLModel.updated_at)).all()
+        
+        models_data = []
+        for model in models:
+            models_data.append(
+                {
+                    "model_name": model.model_name,
+                    "metrics": model.metrics,
+                    "updated_at": model.updated_at.isoformat() if model.updated_at else None,
+                }
+            )
+        
+        return {"status": "success", "data": models_data, "count": len(models_data)}
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Ошибка при получении списка моделей: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500, detail=f"Error retrieving models: {str(e)}"
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка получения моделей: {str(e)}"
         )
 
 
@@ -271,10 +359,17 @@ async def register_model(
         )
         return result
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Error registering model: {str(e)}"
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при регистрации модели: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка регистрации модели: {str(e)}"
         )
 
 
@@ -338,6 +433,414 @@ async def make_prediction_get(
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error making prediction: {str(e)}"
+        )
+
+
+@app.get("/features/latest")
+async def get_latest_features(
+    limit: int = Query(
+        100, ge=1, le=1000, description="Number of latest features to return"
+    ),
+    db: Session = Depends(get_db),
+):
+    """Get the latest BTC features from ML pipeline"""
+    try:
+        features = (
+            db.query(BTCFeature)
+            .order_by(desc(BTCFeature.timestamp))
+            .limit(limit)
+            .all()
+        )
+
+        features_data = []
+        for feat in features:
+            features_data.append(
+                {
+                    "timestamp": feat.timestamp.isoformat(),
+                    "close": feat.Close,
+                    "open_interest": feat.Open_Interest,
+                    "sp500_close": feat.SP500_Close,
+                    "log_return": feat.log_return,
+                    "sp500_log_return": feat.SP500_log_return,
+                    "price_range": feat.price_range,
+                    "price_change": feat.price_change,
+                    "volatility_5": feat.volatility_5,
+                    "volatility_14": feat.volatility_14,
+                    "volatility_21": feat.volatility_21,
+                    "volume_ma_5": feat.volume_ma_5,
+                    "volume_zscore": feat.volume_zscore,
+                    "rsi_safe": feat.RSI_safe,
+                    "macd_safe": feat.MACD_safe,
+                    "atr_safe_norm": feat.ATR_safe_norm,
+                }
+            )
+
+        return {
+            "status": "success",
+            "data": features_data,
+            "count": len(features_data),
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error retrieving features: {str(e)}"
+        )
+
+
+@app.get("/features")
+async def get_features(
+    from_time: Optional[datetime] = Query(
+        None, description="Start time for data retrieval"
+    ),
+    to_time: Optional[datetime] = Query(
+        None, description="End time for data retrieval"
+    ),
+    limit: int = Query(1000, ge=1, le=10000, description="Maximum number of records"),
+    db: Session = Depends(get_db),
+):
+    """Get BTC features for the specified time range"""
+    try:
+        # Валидация временного диапазона
+        if from_time and to_time:
+            if from_time >= to_time:
+                raise HTTPException(
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
+                    detail="from_time должен быть раньше to_time"
+                )
+            # Проверка на слишком большой диапазон (больше 1 года)
+            if (to_time - from_time).days > 365:
+                raise HTTPException(
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
+                    detail="Временной диапазон не должен превышать 365 дней"
+                )
+        
+        if limit < 1 or limit > 10000:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="Параметр limit должен быть от 1 до 10000"
+            )
+        query = db.query(BTCFeature)
+
+        if from_time:
+            query = query.filter(BTCFeature.timestamp >= from_time)
+        if to_time:
+            query = query.filter(BTCFeature.timestamp <= to_time)
+
+        features = query.order_by(BTCFeature.timestamp).limit(limit).all()
+
+        features_data = []
+        for feat in features:
+            features_data.append(
+                {
+                    "timestamp": feat.timestamp.isoformat(),
+                    "close": feat.Close,
+                    "open_interest": feat.Open_Interest,
+                    "sp500_close": feat.SP500_Close,
+                    "log_return": feat.log_return,
+                    "sp500_log_return": feat.SP500_log_return,
+                    "price_range": feat.price_range,
+                    "price_change": feat.price_change,
+                    "volatility_5": feat.volatility_5,
+                    "volatility_14": feat.volatility_14,
+                    "volatility_21": feat.volatility_21,
+                    "volume_ma_5": feat.volume_ma_5,
+                    "volume_ma_14": feat.volume_ma_14,
+                    "volume_ma_21": feat.volume_ma_21,
+                    "volume_zscore": feat.volume_zscore,
+                    "rsi_safe": feat.RSI_safe,
+                    "macd_safe": feat.MACD_safe,
+                    "macds_safe": feat.MACDs_safe,
+                    "macdh_safe": feat.MACDh_safe,
+                    "atr_safe_norm": feat.ATR_safe_norm,
+                    "hour_sin": feat.hour_sin,
+                    "hour_cos": feat.hour_cos,
+                    "day_sin": feat.day_sin,
+                    "day_cos": feat.day_cos,
+                    "month_sin": feat.month_sin,
+                    "month_cos": feat.month_cos,
+                }
+            )
+
+        return {
+            "status": "success",
+            "data": features_data,
+            "count": len(features_data),
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error retrieving features: {str(e)}"
+        )
+
+
+# ============================================================================
+# ML SCRIPTS ENDPOINTS
+# ============================================================================
+
+@app.post("/ml/scripts/run", response_model=ScriptStatusResponse)
+async def run_ml_script(
+    request: ScriptRunRequest,
+    background_tasks=None
+):
+    """
+    Запускает ML-скрипт асинхронно
+    
+    Поддерживаемые скрипты:
+    - data_collector.py
+    - multi_model_trainer.py
+    - predictor.py
+    - inference.py
+    """
+    try:
+        # Проверяем, не выполняется ли уже скрипт
+        if ml_script_service.is_running(request.script_name):
+            raise HTTPException(
+                status_code=http_status.HTTP_409_CONFLICT,
+                detail=f"Скрипт {request.script_name} уже выполняется"
+            )
+        
+        # Запускаем скрипт
+        result = await ml_script_service.run_script(
+            script_name=request.script_name,
+            args=request.args,
+            timeout=request.timeout
+        )
+        
+        if result["status"] == "failed":
+            raise HTTPException(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=result.get("error", "Ошибка выполнения скрипта")
+            )
+        
+        return ScriptStatusResponse(**result)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при запуске скрипта {request.script_name}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка запуска скрипта: {str(e)}"
+        )
+
+
+@app.post("/ml/data-collector/run")
+async def run_data_collector(
+    request: DataCollectorRunRequest
+):
+    """
+    Запускает сбор данных (data_collector.py)
+    
+    Режимы:
+    - batch: Полный исторический сбор
+    - incremental: Инкрементальное обновление
+    """
+    try:
+        # Определяем аргументы в зависимости от режима
+        # Примечание: data_collector.py не принимает аргументы командной строки,
+        # режим определяется внутри скрипта. Но мы можем передать переменную окружения.
+        env = {}
+        if request.mode == 'batch':
+            # Для batch режима можно добавить переменную окружения
+            env['DATA_COLLECTOR_MODE'] = 'batch'
+        
+        result = await ml_script_service.run_script(
+            script_name="data_collector.py",
+            timeout=request.timeout,
+            env=env
+        )
+        
+        if result["status"] == "failed":
+            raise HTTPException(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=result.get("error", "Ошибка сбора данных")
+            )
+        
+        return {
+            "status": "success",
+            "message": f"Сбор данных запущен в режиме {request.mode}",
+            "result": result
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при запуске data_collector: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка запуска сбора данных: {str(e)}"
+        )
+
+
+@app.post("/ml/trainer/run")
+async def run_trainer(
+    request: TrainerRunRequest
+):
+    """
+    Запускает обучение моделей (multi_model_trainer.py)
+    
+    Режимы:
+    - batch: Полное обучение на всех данных
+    - retrain: Дообучение на последних 90 днях
+    """
+    try:
+        # Проверяем, не выполняется ли уже обучение
+        if ml_script_service.is_running("multi_model_trainer.py"):
+            raise HTTPException(
+                status_code=http_status.HTTP_409_CONFLICT,
+                detail="Обучение моделей уже выполняется"
+            )
+        
+        result = await ml_script_service.run_script(
+            script_name="multi_model_trainer.py",
+            args=[request.mode],
+            timeout=request.timeout
+        )
+        
+        if result["status"] == "failed":
+            raise HTTPException(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=result.get("error", "Ошибка обучения моделей")
+            )
+        
+        return {
+            "status": "success",
+            "message": f"Обучение запущено в режиме {request.mode}",
+            "result": result
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при запуске trainer: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка запуска обучения: {str(e)}"
+        )
+
+
+@app.post("/ml/predictor/run")
+async def run_predictor(
+    request: PredictionRunRequest
+):
+    """
+    Запускает прогнозирование (predictor.py)
+    """
+    try:
+        result = await ml_script_service.run_script(
+            script_name="predictor.py",
+            timeout=request.timeout
+        )
+        
+        if result["status"] == "failed":
+            raise HTTPException(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=result.get("error", "Ошибка прогнозирования")
+            )
+        
+        return {
+            "status": "success",
+            "message": "Прогнозирование выполнено",
+            "result": result
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при запуске predictor: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка запуска прогнозирования: {str(e)}"
+        )
+
+
+@app.get("/ml/scripts/status/{script_name}")
+async def get_script_status(script_name: str):
+    """Получает статус выполнения скрипта"""
+    try:
+        status = ml_script_service.get_script_status(script_name)
+        
+        if status is None:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Статус скрипта {script_name} не найден"
+            )
+        
+        return {
+            "status": "success",
+            "data": status
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при получении статуса: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка получения статуса: {str(e)}"
+        )
+
+
+@app.get("/ml/scripts/status")
+async def get_all_scripts_status():
+    """Получает статусы всех скриптов"""
+    try:
+        statuses = ml_script_service.get_all_statuses()
+        return {
+            "status": "success",
+            "data": statuses,
+            "count": len(statuses)
+        }
+    except Exception as e:
+        logger.error(f"Ошибка при получении статусов: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка получения статусов: {str(e)}"
+        )
+
+
+@app.get("/ml/scripts/available")
+async def get_available_scripts():
+    """Возвращает список доступных ML-скриптов"""
+    try:
+        scripts = ml_script_service.get_available_scripts()
+        return {
+            "status": "success",
+            "data": scripts,
+            "count": len(scripts)
+        }
+    except Exception as e:
+        logger.error(f"Ошибка при получении списка скриптов: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка получения списка скриптов: {str(e)}"
+        )
+
+
+@app.post("/ml/scripts/{script_name}/cancel")
+async def cancel_script(script_name: str):
+    """Отменяет выполнение скрипта"""
+    try:
+        result = await ml_script_service.cancel_script(script_name)
+        
+        if result["status"] == "error":
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail=result.get("message", "Ошибка отмены скрипта")
+            )
+        
+        return {
+            "status": "success",
+            "message": result.get("message", f"Скрипт {script_name} отменен")
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при отмене скрипта: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка отмены скрипта: {str(e)}"
         )
 
 

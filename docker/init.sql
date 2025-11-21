@@ -1,80 +1,109 @@
--- Criptify Database Initialization Script
--- This script creates the necessary tables for the BTC price prediction application
+-- Database initialization script for Cryptify project
+-- Creates tables for ML pipeline and backend
 
--- Create database if it doesn't exist (handled by POSTGRES_DB env var)
--- CREATE DATABASE criptify_db;
+-- ============================================================================
+-- 1. ML PIPELINE TABLES
+-- ============================================================================
 
--- Connect to the database
-\c criptify_db;
+-- Table for BTC features (from data_collector.py)
+CREATE TABLE IF NOT EXISTS btc_features_1h (
+    timestamp TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+    
+    -- Basic price data
+    "Close" DOUBLE PRECISION, 
+    "Open_Interest" DOUBLE PRECISION,
+    "SP500_Close" DOUBLE PRECISION,
+    
+    -- Returns and price changes
+    log_return DOUBLE PRECISION,
+    SP500_log_return DOUBLE PRECISION,
+    price_range DOUBLE PRECISION,
+    price_change DOUBLE PRECISION,
+    high_to_prev_close DOUBLE PRECISION,
+    low_to_prev_close DOUBLE PRECISION,
+    
+    -- Volatility and volume
+    volatility_5 DOUBLE PRECISION,
+    volatility_14 DOUBLE PRECISION,
+    volatility_21 DOUBLE PRECISION,
+    volume_ma_5 DOUBLE PRECISION,
+    volume_ma_14 DOUBLE PRECISION,
+    volume_ma_21 DOUBLE PRECISION,
+    volume_zscore DOUBLE PRECISION,
+    
+    -- Technical indicators
+    MACD_safe DOUBLE PRECISION,
+    MACDs_safe DOUBLE PRECISION,
+    MACDh_safe DOUBLE PRECISION,
+    RSI_safe DOUBLE PRECISION,
+    ATR_safe_norm DOUBLE PRECISION,
+    
+    -- Temporal features
+    hour_sin DOUBLE PRECISION,
+    hour_cos DOUBLE PRECISION,
+    day_sin DOUBLE PRECISION,
+    day_cos DOUBLE PRECISION,
+    month_sin DOUBLE PRECISION,
+    month_cos DOUBLE PRECISION,
+    
+    PRIMARY KEY (timestamp)
+);
 
--- Create raw_bars table for storing OHLCV data from Bybit API
+CREATE UNIQUE INDEX IF NOT EXISTS idx_features_timestamp ON btc_features_1h (timestamp);
+
+-- Table for ML predictions (from predictor.py)
+CREATE TABLE IF NOT EXISTS predictions (
+    time TIMESTAMP WITH TIME ZONE NOT NULL,
+    model_name VARCHAR(255) NOT NULL,
+    target_hours INTEGER NOT NULL,
+    prediction_log_return FLOAT,
+    ci_low FLOAT,
+    ci_high FLOAT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    PRIMARY KEY (time, model_name, target_hours)
+);
+
+CREATE INDEX IF NOT EXISTS idx_predictions_time ON predictions (time);
+
+-- Table for ML model metrics (from multi_model_trainer.py)
+CREATE TABLE IF NOT EXISTS ml_models (
+    model_name VARCHAR(255) PRIMARY KEY,
+    metrics JSONB,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ============================================================================
+-- 2. LEGACY/BACKEND TABLES (for backward compatibility)
+-- ============================================================================
+
+-- Table for raw OHLCV data (legacy, may be used by old endpoints)
 CREATE TABLE IF NOT EXISTS raw_bars (
     id SERIAL PRIMARY KEY,
-    timestamp TIMESTAMP NOT NULL,
+    timestamp TIMESTAMP WITHOUT TIME ZONE NOT NULL,
     symbol VARCHAR(20) NOT NULL DEFAULT 'BTCUSDT',
-    open_price DECIMAL(20, 8) NOT NULL,
-    high_price DECIMAL(20, 8) NOT NULL,
-    low_price DECIMAL(20, 8) NOT NULL,
-    close_price DECIMAL(20, 8) NOT NULL,
-    volume DECIMAL(20, 8) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    open_price DOUBLE PRECISION NOT NULL,
+    high_price DOUBLE PRECISION NOT NULL,
+    low_price DOUBLE PRECISION NOT NULL,
+    close_price DOUBLE PRECISION NOT NULL,
+    volume DOUBLE PRECISION NOT NULL,
+    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
 );
 
--- Create index on timestamp for faster queries
-CREATE INDEX IF NOT EXISTS idx_raw_bars_timestamp ON raw_bars(timestamp);
-CREATE INDEX IF NOT EXISTS idx_raw_bars_symbol ON raw_bars(symbol);
+CREATE INDEX IF NOT EXISTS idx_raw_bars_timestamp ON raw_bars (timestamp);
 
--- Create predictions table for storing ML model predictions
-CREATE TABLE IF NOT EXISTS predictions (
-    id SERIAL PRIMARY KEY,
-    timestamp TIMESTAMP NOT NULL,
-    model_name VARCHAR(100) NOT NULL DEFAULT 'baseline',
-    prediction_horizon INTEGER NOT NULL DEFAULT 3,
-    predicted_value DECIMAL(20, 8) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Create index on timestamp for faster queries
-CREATE INDEX IF NOT EXISTS idx_predictions_timestamp ON predictions(timestamp);
-CREATE INDEX IF NOT EXISTS idx_predictions_model_name ON predictions(model_name);
-
--- Create model_metrics table for storing model performance metrics
+-- Table for model metrics (legacy, for backward compatibility)
 CREATE TABLE IF NOT EXISTS model_metrics (
     id SERIAL PRIMARY KEY,
     model_name VARCHAR(100) NOT NULL,
     metric_name VARCHAR(50) NOT NULL,
-    metric_value DECIMAL(20, 8) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    metric_value DOUBLE PRECISION NOT NULL,
+    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
 );
 
--- Create index on created_at for faster queries
-CREATE INDEX IF NOT EXISTS idx_model_metrics_created_at ON model_metrics(created_at);
+CREATE INDEX IF NOT EXISTS idx_model_metrics_model_name ON model_metrics (model_name);
 
--- Create ml_features table for storing engineered features (for ML pipeline)
-CREATE TABLE IF NOT EXISTS ml_features (
-    id SERIAL PRIMARY KEY,
-    timestamp TIMESTAMP NOT NULL,
-    symbol VARCHAR(20) NOT NULL DEFAULT 'BTCUSDT',
-    -- Technical indicators
-    sma_50 DECIMAL(20, 8),
-    sma_200 DECIMAL(20, 8),
-    rsi DECIMAL(10, 4),
-    bb_upper DECIMAL(20, 8),
-    bb_middle DECIMAL(20, 8),
-    bb_lower DECIMAL(20, 8),
-    -- Time features
-    hour_of_day INTEGER,
-    day_of_week INTEGER,
-    -- Target variable
-    price_in_48h DECIMAL(20, 8),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Create index on timestamp for faster queries
-CREATE INDEX IF NOT EXISTS idx_ml_features_timestamp ON ml_features(timestamp);
-
--- Create ml_models table for model registry
-CREATE TABLE IF NOT EXISTS ml_models (
+-- Table for ML model registry (legacy, for backward compatibility)
+CREATE TABLE IF NOT EXISTS ml_model_registry (
     id SERIAL PRIMARY KEY,
     model_name VARCHAR(100) NOT NULL UNIQUE,
     model_type VARCHAR(50) NOT NULL,
@@ -83,202 +112,8 @@ CREATE TABLE IF NOT EXISTS ml_models (
     feature_config JSONB,
     metrics JSONB,
     is_active INTEGER DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
 );
 
--- Create index on model_name for faster queries
-CREATE INDEX IF NOT EXISTS idx_ml_models_model_name ON ml_models(model_name);
-CREATE INDEX IF NOT EXISTS idx_ml_models_is_active ON ml_models(is_active);
-
--- Insert sample BTC data for testing (last 7 days with realistic prices)
--- Data starts from 7 days ago, hourly intervals
-INSERT INTO raw_bars (timestamp, symbol, open_price, high_price, low_price, close_price, volume) VALUES
-    -- Day -7
-    (NOW() - INTERVAL '168 hours', 'BTCUSDT', 66250.00, 66420.00, 66180.00, 66350.00, 125.45),
-    (NOW() - INTERVAL '167 hours', 'BTCUSDT', 66350.00, 66580.00, 66320.00, 66520.00, 142.30),
-    (NOW() - INTERVAL '166 hours', 'BTCUSDT', 66520.00, 66620.00, 66450.00, 66550.00, 118.75),
-    (NOW() - INTERVAL '165 hours', 'BTCUSDT', 66550.00, 66680.00, 66490.00, 66640.00, 135.20),
-    (NOW() - INTERVAL '164 hours', 'BTCUSDT', 66640.00, 66750.00, 66580.00, 66700.00, 148.60),
-    (NOW() - INTERVAL '163 hours', 'BTCUSDT', 66700.00, 66890.00, 66650.00, 66850.00, 165.40),
-    (NOW() - INTERVAL '162 hours', 'BTCUSDT', 66850.00, 66950.00, 66780.00, 66820.00, 132.90),
-    (NOW() - INTERVAL '161 hours', 'BTCUSDT', 66820.00, 66980.00, 66790.00, 66920.00, 151.25),
-    (NOW() - INTERVAL '160 hours', 'BTCUSDT', 66920.00, 67120.00, 66880.00, 67050.00, 178.35),
-    (NOW() - INTERVAL '159 hours', 'BTCUSDT', 67050.00, 67180.00, 66990.00, 67100.00, 145.80),
-    (NOW() - INTERVAL '158 hours', 'BTCUSDT', 67100.00, 67220.00, 67020.00, 67150.00, 156.40),
-    (NOW() - INTERVAL '157 hours', 'BTCUSDT', 67150.00, 67280.00, 67080.00, 67180.00, 162.75),
-    (NOW() - INTERVAL '156 hours', 'BTCUSDT', 67180.00, 67350.00, 67120.00, 67290.00, 171.50),
-    (NOW() - INTERVAL '155 hours', 'BTCUSDT', 67290.00, 67420.00, 67230.00, 67350.00, 158.90),
-    (NOW() - INTERVAL '154 hours', 'BTCUSDT', 67350.00, 67480.00, 67280.00, 67400.00, 164.30),
-    (NOW() - INTERVAL '153 hours', 'BTCUSDT', 67400.00, 67550.00, 67350.00, 67480.00, 182.60),
-    (NOW() - INTERVAL '152 hours', 'BTCUSDT', 67480.00, 67620.00, 67430.00, 67550.00, 175.40),
-    (NOW() - INTERVAL '151 hours', 'BTCUSDT', 67550.00, 67680.00, 67490.00, 67620.00, 189.25),
-    (NOW() - INTERVAL '150 hours', 'BTCUSDT', 67620.00, 67750.00, 67560.00, 67680.00, 194.80),
-    (NOW() - INTERVAL '149 hours', 'BTCUSDT', 67680.00, 67820.00, 67630.00, 67750.00, 201.35),
-    (NOW() - INTERVAL '148 hours', 'BTCUSDT', 67750.00, 67850.00, 67680.00, 67780.00, 186.90),
-    (NOW() - INTERVAL '147 hours', 'BTCUSDT', 67780.00, 67920.00, 67720.00, 67850.00, 198.50),
-    (NOW() - INTERVAL '146 hours', 'BTCUSDT', 67850.00, 67980.00, 67790.00, 67920.00, 205.60),
-    (NOW() - INTERVAL '145 hours', 'BTCUSDT', 67920.00, 68050.00, 67860.00, 67980.00, 212.40),
-    -- Day -6
-    (NOW() - INTERVAL '144 hours', 'BTCUSDT', 67980.00, 68120.00, 67920.00, 68050.00, 218.75),
-    (NOW() - INTERVAL '143 hours', 'BTCUSDT', 68050.00, 68180.00, 67990.00, 68120.00, 225.30),
-    (NOW() - INTERVAL '142 hours', 'BTCUSDT', 68120.00, 68220.00, 68050.00, 68150.00, 208.90),
-    (NOW() - INTERVAL '141 hours', 'BTCUSDT', 68150.00, 68280.00, 68090.00, 68200.00, 215.45),
-    (NOW() - INTERVAL '140 hours', 'BTCUSDT', 68200.00, 68320.00, 68140.00, 68250.00, 222.60),
-    (NOW() - INTERVAL '139 hours', 'BTCUSDT', 68250.00, 68150.00, 68080.00, 68100.00, 195.80),
-    (NOW() - INTERVAL '138 hours', 'BTCUSDT', 68100.00, 68050.00, 67920.00, 67950.00, 188.35),
-    (NOW() - INTERVAL '137 hours', 'BTCUSDT', 67950.00, 67880.00, 67750.00, 67800.00, 175.90),
-    (NOW() - INTERVAL '136 hours', 'BTCUSDT', 67800.00, 67920.00, 67740.00, 67850.00, 168.50),
-    (NOW() - INTERVAL '135 hours', 'BTCUSDT', 67850.00, 67980.00, 67790.00, 67920.00, 172.25),
-    (NOW() - INTERVAL '134 hours', 'BTCUSDT', 67920.00, 68050.00, 67860.00, 67980.00, 178.60),
-    (NOW() - INTERVAL '133 hours', 'BTCUSDT', 67980.00, 68120.00, 67920.00, 68050.00, 185.40),
-    (NOW() - INTERVAL '132 hours', 'BTCUSDT', 68050.00, 68180.00, 67990.00, 68120.00, 192.75),
-    (NOW() - INTERVAL '131 hours', 'BTCUSDT', 68120.00, 68250.00, 68060.00, 68180.00, 198.30),
-    (NOW() - INTERVAL '130 hours', 'BTCUSDT', 68180.00, 68320.00, 68120.00, 68250.00, 205.90),
-    (NOW() - INTERVAL '129 hours', 'BTCUSDT', 68250.00, 68380.00, 68190.00, 68320.00, 212.45),
-    (NOW() - INTERVAL '128 hours', 'BTCUSDT', 68320.00, 68450.00, 68260.00, 68380.00, 219.60),
-    (NOW() - INTERVAL '127 hours', 'BTCUSDT', 68380.00, 68520.00, 68320.00, 68450.00, 226.80),
-    (NOW() - INTERVAL '126 hours', 'BTCUSDT', 68450.00, 68580.00, 68390.00, 68520.00, 235.35),
-    (NOW() - INTERVAL '125 hours', 'BTCUSDT', 68520.00, 68650.00, 68460.00, 68580.00, 242.90),
-    (NOW() - INTERVAL '124 hours', 'BTCUSDT', 68580.00, 68720.00, 68520.00, 68650.00, 251.50),
-    (NOW() - INTERVAL '123 hours', 'BTCUSDT', 68650.00, 68780.00, 68590.00, 68720.00, 258.25),
-    (NOW() - INTERVAL '122 hours', 'BTCUSDT', 68720.00, 68850.00, 68660.00, 68780.00, 265.60),
-    (NOW() - INTERVAL '121 hours', 'BTCUSDT', 68780.00, 68920.00, 68720.00, 68850.00, 272.40),
-    -- Day -5
-    (NOW() - INTERVAL '120 hours', 'BTCUSDT', 68850.00, 68980.00, 68790.00, 68920.00, 278.75),
-    (NOW() - INTERVAL '119 hours', 'BTCUSDT', 68920.00, 69050.00, 68860.00, 68980.00, 285.30),
-    (NOW() - INTERVAL '118 hours', 'BTCUSDT', 68980.00, 69120.00, 68920.00, 69050.00, 292.90),
-    (NOW() - INTERVAL '117 hours', 'BTCUSDT', 69050.00, 69180.00, 68990.00, 69120.00, 298.45),
-    (NOW() - INTERVAL '116 hours', 'BTCUSDT', 69120.00, 69250.00, 69060.00, 69180.00, 305.60),
-    (NOW() - INTERVAL '115 hours', 'BTCUSDT', 69180.00, 69320.00, 69120.00, 69250.00, 312.80),
-    (NOW() - INTERVAL '114 hours', 'BTCUSDT', 69250.00, 69150.00, 69080.00, 69100.00, 285.35),
-    (NOW() - INTERVAL '113 hours', 'BTCUSDT', 69100.00, 69050.00, 68920.00, 68950.00, 268.90),
-    (NOW() - INTERVAL '112 hours', 'BTCUSDT', 68950.00, 68880.00, 68750.00, 68800.00, 255.50),
-    (NOW() - INTERVAL '111 hours', 'BTCUSDT', 68800.00, 68920.00, 68740.00, 68850.00, 248.25),
-    (NOW() - INTERVAL '110 hours', 'BTCUSDT', 68850.00, 68980.00, 68790.00, 68920.00, 252.60),
-    (NOW() - INTERVAL '109 hours', 'BTCUSDT', 68920.00, 69050.00, 68860.00, 68980.00, 258.40),
-    (NOW() - INTERVAL '108 hours', 'BTCUSDT', 68980.00, 69120.00, 68920.00, 69050.00, 265.75),
-    (NOW() - INTERVAL '107 hours', 'BTCUSDT', 69050.00, 69180.00, 68990.00, 69120.00, 272.30),
-    (NOW() - INTERVAL '106 hours', 'BTCUSDT', 69120.00, 69250.00, 69060.00, 69180.00, 278.90),
-    (NOW() - INTERVAL '105 hours', 'BTCUSDT', 69180.00, 69320.00, 69120.00, 69250.00, 285.45),
-    (NOW() - INTERVAL '104 hours', 'BTCUSDT', 69250.00, 69380.00, 69190.00, 69320.00, 292.60),
-    (NOW() - INTERVAL '103 hours', 'BTCUSDT', 69320.00, 69450.00, 69260.00, 69380.00, 298.80),
-    (NOW() - INTERVAL '102 hours', 'BTCUSDT', 69380.00, 69520.00, 69320.00, 69450.00, 305.35),
-    (NOW() - INTERVAL '101 hours', 'BTCUSDT', 69450.00, 69580.00, 69390.00, 69520.00, 312.90),
-    (NOW() - INTERVAL '100 hours', 'BTCUSDT', 69520.00, 69650.00, 69460.00, 69580.00, 318.50),
-    (NOW() - INTERVAL '99 hours', 'BTCUSDT', 69580.00, 69720.00, 69520.00, 69650.00, 325.25),
-    (NOW() - INTERVAL '98 hours', 'BTCUSDT', 69650.00, 69780.00, 69590.00, 69720.00, 332.60),
-    (NOW() - INTERVAL '97 hours', 'BTCUSDT', 69720.00, 69850.00, 69660.00, 69780.00, 338.40),
-    -- Day -4
-    (NOW() - INTERVAL '96 hours', 'BTCUSDT', 69780.00, 69920.00, 69720.00, 69850.00, 345.75),
-    (NOW() - INTERVAL '95 hours', 'BTCUSDT', 69850.00, 69750.00, 69680.00, 69700.00, 322.30),
-    (NOW() - INTERVAL '94 hours', 'BTCUSDT', 69700.00, 69620.00, 69550.00, 69580.00, 308.90),
-    (NOW() - INTERVAL '93 hours', 'BTCUSDT', 69580.00, 69680.00, 69520.00, 69620.00, 298.45),
-    (NOW() - INTERVAL '92 hours', 'BTCUSDT', 69620.00, 69750.00, 69560.00, 69680.00, 305.60),
-    (NOW() - INTERVAL '91 hours', 'BTCUSDT', 69680.00, 69820.00, 69620.00, 69750.00, 312.80),
-    (NOW() - INTERVAL '90 hours', 'BTCUSDT', 69750.00, 69880.00, 69690.00, 69820.00, 318.35),
-    (NOW() - INTERVAL '89 hours', 'BTCUSDT', 69820.00, 69950.00, 69760.00, 69880.00, 325.90),
-    (NOW() - INTERVAL '88 hours', 'BTCUSDT', 69880.00, 70020.00, 69820.00, 69950.00, 332.50),
-    (NOW() - INTERVAL '87 hours', 'BTCUSDT', 69950.00, 70080.00, 69890.00, 70020.00, 338.25),
-    (NOW() - INTERVAL '86 hours', 'BTCUSDT', 70020.00, 70150.00, 69960.00, 70080.00, 345.60),
-    (NOW() - INTERVAL '85 hours', 'BTCUSDT', 70080.00, 70220.00, 70020.00, 70150.00, 352.40),
-    (NOW() - INTERVAL '84 hours', 'BTCUSDT', 70150.00, 70280.00, 70090.00, 70220.00, 358.75),
-    (NOW() - INTERVAL '83 hours', 'BTCUSDT', 70220.00, 70350.00, 70160.00, 70280.00, 365.30),
-    (NOW() - INTERVAL '82 hours', 'BTCUSDT', 70280.00, 70420.00, 70220.00, 70350.00, 372.90),
-    (NOW() - INTERVAL '81 hours', 'BTCUSDT', 70350.00, 70480.00, 70290.00, 70420.00, 378.45),
-    (NOW() - INTERVAL '80 hours', 'BTCUSDT', 70420.00, 70550.00, 70360.00, 70480.00, 385.60),
-    (NOW() - INTERVAL '79 hours', 'BTCUSDT', 70480.00, 70620.00, 70420.00, 70550.00, 392.80),
-    (NOW() - INTERVAL '78 hours', 'BTCUSDT', 70550.00, 70680.00, 70490.00, 70620.00, 398.35),
-    (NOW() - INTERVAL '77 hours', 'BTCUSDT', 70620.00, 70750.00, 70560.00, 70680.00, 405.90),
-    (NOW() - INTERVAL '76 hours', 'BTCUSDT', 70680.00, 70820.00, 70620.00, 70750.00, 412.50),
-    (NOW() - INTERVAL '75 hours', 'BTCUSDT', 70750.00, 70880.00, 70690.00, 70820.00, 418.25),
-    (NOW() - INTERVAL '74 hours', 'BTCUSDT', 70820.00, 70950.00, 70760.00, 70880.00, 425.60),
-    (NOW() - INTERVAL '73 hours', 'BTCUSDT', 70880.00, 71020.00, 70820.00, 70950.00, 432.40),
-    -- Day -3
-    (NOW() - INTERVAL '72 hours', 'BTCUSDT', 70950.00, 71080.00, 70890.00, 71020.00, 438.75),
-    (NOW() - INTERVAL '71 hours', 'BTCUSDT', 71020.00, 70920.00, 70850.00, 70880.00, 415.30),
-    (NOW() - INTERVAL '70 hours', 'BTCUSDT', 70880.00, 70780.00, 70720.00, 70750.00, 398.90),
-    (NOW() - INTERVAL '69 hours', 'BTCUSDT', 70750.00, 70850.00, 70690.00, 70780.00, 385.45),
-    (NOW() - INTERVAL '68 hours', 'BTCUSDT', 70780.00, 70920.00, 70720.00, 70850.00, 392.60),
-    (NOW() - INTERVAL '67 hours', 'BTCUSDT', 70850.00, 70980.00, 70790.00, 70920.00, 398.80),
-    (NOW() - INTERVAL '66 hours', 'BTCUSDT', 70920.00, 71050.00, 70860.00, 70980.00, 405.35),
-    (NOW() - INTERVAL '65 hours', 'BTCUSDT', 70980.00, 71120.00, 70920.00, 71050.00, 412.90),
-    (NOW() - INTERVAL '64 hours', 'BTCUSDT', 71050.00, 71180.00, 70990.00, 71120.00, 418.50),
-    (NOW() - INTERVAL '63 hours', 'BTCUSDT', 71120.00, 71250.00, 71060.00, 71180.00, 425.25),
-    (NOW() - INTERVAL '62 hours', 'BTCUSDT', 71180.00, 71320.00, 71120.00, 71250.00, 432.60),
-    (NOW() - INTERVAL '61 hours', 'BTCUSDT', 71250.00, 71380.00, 71190.00, 71320.00, 438.40),
-    (NOW() - INTERVAL '60 hours', 'BTCUSDT', 71320.00, 71450.00, 71260.00, 71380.00, 445.75),
-    (NOW() - INTERVAL '59 hours', 'BTCUSDT', 71380.00, 71520.00, 71320.00, 71450.00, 452.30),
-    (NOW() - INTERVAL '58 hours', 'BTCUSDT', 71450.00, 71580.00, 71390.00, 71520.00, 458.90),
-    (NOW() - INTERVAL '57 hours', 'BTCUSDT', 71520.00, 71650.00, 71460.00, 71580.00, 465.45),
-    (NOW() - INTERVAL '56 hours', 'BTCUSDT', 71580.00, 71720.00, 71520.00, 71650.00, 472.60),
-    (NOW() - INTERVAL '55 hours', 'BTCUSDT', 71650.00, 71780.00, 71590.00, 71720.00, 478.80),
-    (NOW() - INTERVAL '54 hours', 'BTCUSDT', 71720.00, 71850.00, 71660.00, 71780.00, 485.35),
-    (NOW() - INTERVAL '53 hours', 'BTCUSDT', 71780.00, 71920.00, 71720.00, 71850.00, 492.90),
-    (NOW() - INTERVAL '52 hours', 'BTCUSDT', 71850.00, 71980.00, 71790.00, 71920.00, 498.50),
-    (NOW() - INTERVAL '51 hours', 'BTCUSDT', 71920.00, 72050.00, 71860.00, 71980.00, 505.25),
-    (NOW() - INTERVAL '50 hours', 'BTCUSDT', 71980.00, 72120.00, 71920.00, 72050.00, 512.60),
-    (NOW() - INTERVAL '49 hours', 'BTCUSDT', 72050.00, 72180.00, 71990.00, 72120.00, 518.40),
-    -- Day -2
-    (NOW() - INTERVAL '48 hours', 'BTCUSDT', 72120.00, 72250.00, 72060.00, 72180.00, 525.75),
-    (NOW() - INTERVAL '47 hours', 'BTCUSDT', 72180.00, 72080.00, 72020.00, 72050.00, 502.30),
-    (NOW() - INTERVAL '46 hours', 'BTCUSDT', 72050.00, 71950.00, 71880.00, 71920.00, 485.90),
-    (NOW() - INTERVAL '45 hours', 'BTCUSDT', 71920.00, 72020.00, 71860.00, 71950.00, 472.45),
-    (NOW() - INTERVAL '44 hours', 'BTCUSDT', 71950.00, 72080.00, 71890.00, 72020.00, 478.60),
-    (NOW() - INTERVAL '43 hours', 'BTCUSDT', 72020.00, 72150.00, 71960.00, 72080.00, 485.80),
-    (NOW() - INTERVAL '42 hours', 'BTCUSDT', 72080.00, 72220.00, 72020.00, 72150.00, 492.35),
-    (NOW() - INTERVAL '41 hours', 'BTCUSDT', 72150.00, 72280.00, 72090.00, 72220.00, 498.90),
-    (NOW() - INTERVAL '40 hours', 'BTCUSDT', 72220.00, 72350.00, 72160.00, 72280.00, 505.50),
-    (NOW() - INTERVAL '39 hours', 'BTCUSDT', 72280.00, 72420.00, 72220.00, 72350.00, 512.25),
-    (NOW() - INTERVAL '38 hours', 'BTCUSDT', 72350.00, 72480.00, 72290.00, 72420.00, 518.60),
-    (NOW() - INTERVAL '37 hours', 'BTCUSDT', 72420.00, 72550.00, 72360.00, 72480.00, 525.40),
-    (NOW() - INTERVAL '36 hours', 'BTCUSDT', 72480.00, 72620.00, 72420.00, 72550.00, 532.75),
-    (NOW() - INTERVAL '35 hours', 'BTCUSDT', 72550.00, 72680.00, 72490.00, 72620.00, 538.30),
-    (NOW() - INTERVAL '34 hours', 'BTCUSDT', 72620.00, 72750.00, 72560.00, 72680.00, 545.90),
-    (NOW() - INTERVAL '33 hours', 'BTCUSDT', 72680.00, 72820.00, 72620.00, 72750.00, 552.45),
-    (NOW() - INTERVAL '32 hours', 'BTCUSDT', 72750.00, 72880.00, 72690.00, 72820.00, 558.60),
-    (NOW() - INTERVAL '31 hours', 'BTCUSDT', 72820.00, 72950.00, 72760.00, 72880.00, 565.80),
-    (NOW() - INTERVAL '30 hours', 'BTCUSDT', 72880.00, 73020.00, 72820.00, 72950.00, 572.35),
-    (NOW() - INTERVAL '29 hours', 'BTCUSDT', 72950.00, 73080.00, 72890.00, 73020.00, 578.90),
-    (NOW() - INTERVAL '28 hours', 'BTCUSDT', 73020.00, 73150.00, 72960.00, 73080.00, 585.50),
-    (NOW() - INTERVAL '27 hours', 'BTCUSDT', 73080.00, 73220.00, 73020.00, 73150.00, 592.25),
-    (NOW() - INTERVAL '26 hours', 'BTCUSDT', 73150.00, 73280.00, 73090.00, 73220.00, 598.60),
-    (NOW() - INTERVAL '25 hours', 'BTCUSDT', 73220.00, 73350.00, 73160.00, 73280.00, 605.40),
-    -- Day -1
-    (NOW() - INTERVAL '24 hours', 'BTCUSDT', 73280.00, 73420.00, 73220.00, 73350.00, 612.75),
-    (NOW() - INTERVAL '23 hours', 'BTCUSDT', 73350.00, 73250.00, 73180.00, 73220.00, 588.30),
-    (NOW() - INTERVAL '22 hours', 'BTCUSDT', 73220.00, 73120.00, 73050.00, 73080.00, 572.90),
-    (NOW() - INTERVAL '21 hours', 'BTCUSDT', 73080.00, 73180.00, 73020.00, 73120.00, 558.45),
-    (NOW() - INTERVAL '20 hours', 'BTCUSDT', 73120.00, 73250.00, 73060.00, 73180.00, 565.60),
-    (NOW() - INTERVAL '19 hours', 'BTCUSDT', 73180.00, 73320.00, 73120.00, 73250.00, 572.80),
-    (NOW() - INTERVAL '18 hours', 'BTCUSDT', 73250.00, 73380.00, 73190.00, 73320.00, 578.35),
-    (NOW() - INTERVAL '17 hours', 'BTCUSDT', 73320.00, 73450.00, 73260.00, 73380.00, 585.90),
-    (NOW() - INTERVAL '16 hours', 'BTCUSDT', 73380.00, 73520.00, 73320.00, 73450.00, 592.50),
-    (NOW() - INTERVAL '15 hours', 'BTCUSDT', 73450.00, 73580.00, 73390.00, 73520.00, 598.25),
-    (NOW() - INTERVAL '14 hours', 'BTCUSDT', 73520.00, 73650.00, 73460.00, 73580.00, 605.60),
-    (NOW() - INTERVAL '13 hours', 'BTCUSDT', 73580.00, 73720.00, 73520.00, 73650.00, 612.40),
-    (NOW() - INTERVAL '12 hours', 'BTCUSDT', 73650.00, 73780.00, 73590.00, 73720.00, 618.75),
-    (NOW() - INTERVAL '11 hours', 'BTCUSDT', 73720.00, 73850.00, 73660.00, 73780.00, 625.30),
-    (NOW() - INTERVAL '10 hours', 'BTCUSDT', 73780.00, 73920.00, 73720.00, 73850.00, 632.90),
-    (NOW() - INTERVAL '9 hours', 'BTCUSDT', 73850.00, 73980.00, 73790.00, 73920.00, 638.45),
-    (NOW() - INTERVAL '8 hours', 'BTCUSDT', 73920.00, 74050.00, 73860.00, 73980.00, 645.60),
-    (NOW() - INTERVAL '7 hours', 'BTCUSDT', 73980.00, 74120.00, 73920.00, 74050.00, 652.80),
-    (NOW() - INTERVAL '6 hours', 'BTCUSDT', 74050.00, 74180.00, 73990.00, 74120.00, 658.35),
-    (NOW() - INTERVAL '5 hours', 'BTCUSDT', 74120.00, 74250.00, 74060.00, 74180.00, 665.90),
-    (NOW() - INTERVAL '4 hours', 'BTCUSDT', 74180.00, 74320.00, 74120.00, 74250.00, 672.50),
-    (NOW() - INTERVAL '3 hours', 'BTCUSDT', 74250.00, 74380.00, 74190.00, 74320.00, 678.25),
-    (NOW() - INTERVAL '2 hours', 'BTCUSDT', 74320.00, 74450.00, 74260.00, 74380.00, 685.60),
-    (NOW() - INTERVAL '1 hours', 'BTCUSDT', 74380.00, 74520.00, 74320.00, 74450.00, 692.40),
-    (NOW(), 'BTCUSDT', 74450.00, 74580.00, 74390.00, 74520.00, 698.75);
-
--- Insert sample prediction (3 hours ahead from current time)
-INSERT INTO predictions (timestamp, model_name, prediction_horizon, predicted_value) VALUES
-    (NOW(), 'baseline', 3, 74850.00);
-
--- Insert sample model registry entry
-INSERT INTO ml_models (model_name, model_type, prediction_horizons, file_path, feature_config, metrics, is_active) VALUES
-    ('baseline', 'LinearRegression', '[1, 3, 24, 168]', '/app/trained_models/baseline_model.joblib', '{"features": ["lag_1h", "lag_2h", "lag_24h", "SMA_10h", "price_change_1h"]}', '{"r2": 0.0, "mae": 0.0, "rmse": 0.0}', 1);
-
--- Grant permissions to the application user
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO criptify_user;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO criptify_user;
+CREATE INDEX IF NOT EXISTS idx_ml_model_registry_model_name ON ml_model_registry (model_name);

@@ -6,7 +6,9 @@ from sqlalchemy import (
     DateTime,
     String,
     JSON,
+    Index,
 )
+from sqlalchemy.dialects.postgresql import JSONB, DOUBLE_PRECISION
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -43,20 +45,28 @@ class RawBar(Base):
 
 
 class Prediction(Base):
-    """ML model predictions"""
+    """ML model predictions (updated to match ML scripts schema)"""
 
     __tablename__ = "predictions"
 
-    id = Column(Integer, primary_key=True, index=True)
-    timestamp = Column(
-        DateTime, nullable=False, index=True
-    )  # Time when prediction was made
-    model_name = Column(
-        String(100), nullable=False, default="baseline"
-    )  # Model used for prediction
-    prediction_horizon = Column(Integer, nullable=False, default=3)  # Hours ahead
-    predicted_value = Column(Float, nullable=False)  # Predicted price
-    created_at = Column(DateTime, default=datetime.utcnow)
+    # Composite primary key matching ML scripts
+    time = Column(DateTime(timezone=True), primary_key=True, nullable=False, index=True)
+    model_name = Column(String(255), primary_key=True, nullable=False)
+    target_hours = Column(Integer, primary_key=True, nullable=False)
+    
+    # Prediction value (log return)
+    prediction_log_return = Column(Float, nullable=True)
+    
+    # Confidence intervals
+    ci_low = Column(Float, nullable=True)
+    ci_high = Column(Float, nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    
+    # Index for faster queries
+    __table_args__ = (
+        Index('idx_predictions_time', 'time'),
+    )
 
 
 class ModelMetric(Base):
@@ -72,26 +82,62 @@ class ModelMetric(Base):
 
 
 class MLModel(Base):
-    """ML model registry"""
+    """ML model registry (updated to match ML scripts schema)"""
 
     __tablename__ = "ml_models"
 
-    id = Column(Integer, primary_key=True, index=True)
-    model_name = Column(String(100), nullable=False, unique=True, index=True)
-    model_type = Column(
-        String(50), nullable=False
-    )  # LinearRegression, RandomForest, etc.
-    prediction_horizons = Column(
-        JSON, nullable=False
-    )  # List of supported horizons in hours [1, 3, 24, 168]
-    file_path = Column(String(255), nullable=False)  # Path to the model file
-    feature_config = Column(
-        JSON, nullable=True
-    )  # Configuration for feature engineering
-    metrics = Column(JSON, nullable=True)
-    is_active = Column(Integer, default=1)  # 1 = active, 0 = inactive
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    model_name = Column(String(255), primary_key=True, nullable=False, index=True)
+    metrics = Column(JSONB, nullable=True)  # JSONB for better performance in PostgreSQL
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class BTCFeature(Base):
+    """BTC features table from ML data collector"""
+
+    __tablename__ = "btc_features_1h"
+
+    timestamp = Column(DateTime(timezone=False), primary_key=True, nullable=False, index=True)
+    
+    # Basic price data
+    Close = Column(DOUBLE_PRECISION, nullable=True)
+    Open_Interest = Column(DOUBLE_PRECISION, nullable=True)
+    SP500_Close = Column(DOUBLE_PRECISION, nullable=True)
+    
+    # Returns and price changes
+    log_return = Column(DOUBLE_PRECISION, nullable=True)
+    SP500_log_return = Column(DOUBLE_PRECISION, nullable=True)
+    price_range = Column(DOUBLE_PRECISION, nullable=True)
+    price_change = Column(DOUBLE_PRECISION, nullable=True)
+    high_to_prev_close = Column(DOUBLE_PRECISION, nullable=True)
+    low_to_prev_close = Column(DOUBLE_PRECISION, nullable=True)
+    
+    # Volatility and volume
+    volatility_5 = Column(DOUBLE_PRECISION, nullable=True)
+    volatility_14 = Column(DOUBLE_PRECISION, nullable=True)
+    volatility_21 = Column(DOUBLE_PRECISION, nullable=True)
+    volume_ma_5 = Column(DOUBLE_PRECISION, nullable=True)
+    volume_ma_14 = Column(DOUBLE_PRECISION, nullable=True)
+    volume_ma_21 = Column(DOUBLE_PRECISION, nullable=True)
+    volume_zscore = Column(DOUBLE_PRECISION, nullable=True)
+    
+    # Technical indicators
+    MACD_safe = Column(DOUBLE_PRECISION, nullable=True)
+    MACDs_safe = Column(DOUBLE_PRECISION, nullable=True)
+    MACDh_safe = Column(DOUBLE_PRECISION, nullable=True)
+    RSI_safe = Column(DOUBLE_PRECISION, nullable=True)
+    ATR_safe_norm = Column(DOUBLE_PRECISION, nullable=True)
+    
+    # Temporal features
+    hour_sin = Column(DOUBLE_PRECISION, nullable=True)
+    hour_cos = Column(DOUBLE_PRECISION, nullable=True)
+    day_sin = Column(DOUBLE_PRECISION, nullable=True)
+    day_cos = Column(DOUBLE_PRECISION, nullable=True)
+    month_sin = Column(DOUBLE_PRECISION, nullable=True)
+    month_cos = Column(DOUBLE_PRECISION, nullable=True)
+    
+    __table_args__ = (
+        Index('idx_features_timestamp', 'timestamp', unique=True),
+    )
 
 
 # Dependency to get database session
