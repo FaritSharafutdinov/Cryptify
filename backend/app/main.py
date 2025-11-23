@@ -151,9 +151,10 @@ async def get_history(
             
             # Convert features to raw_bars format (approximation)
             raw_bars_data = []
+            prev_close = None
             for row in features_rows:
                 if row[1] is not None:  # Close price
-                    # Estimate OHLC from Close price (simplified)
+                    # Estimate OHLC from Close price
                     close = float(row[1])
                     timestamp = row[0]
                     if timestamp:
@@ -161,15 +162,34 @@ async def get_history(
                         if timestamp.tzinfo is None:
                             from datetime import timezone
                             timestamp = timestamp.replace(tzinfo=timezone.utc)
+                        
+                        # Open should be previous close, not current close
+                        if prev_close is not None:
+                            open_price = prev_close
+                        else:
+                            # For first bar, use close as open (or estimate from log_return if available)
+                            if len(row) > 3 and row[3] is not None:  # log_return
+                                log_return = float(row[3])
+                                open_price = close / (1 + log_return) if log_return != 0 else close * 0.999
+                            else:
+                                open_price = close * 0.999  # Small difference to create body
+                        
+                        # Calculate high and low based on price movement
+                        price_change = close - open_price
+                        high_price = max(close, open_price) + abs(price_change) * 0.3
+                        low_price = min(close, open_price) - abs(price_change) * 0.3
+                        
                         raw_bars_data.append({
                             "timestamp": timestamp.isoformat(),
                             "symbol": "BTCUSDT",
-                            "open": close,  # Approximation
-                            "high": close * 1.01,  # Approximation
-                            "low": close * 0.99,  # Approximation
+                            "open": open_price,
+                            "high": high_price,
+                            "low": low_price,
                             "close": close,
-                            "volume": float(row[13]) if row[13] is not None else 100.0,  # volume_ma_5
+                            "volume": float(row[13]) if len(row) > 13 and row[13] is not None else 100.0,  # volume_ma_5
                         })
+                        
+                        prev_close = close
             
             # Убеждаемся, что данные отсортированы по timestamp
             raw_bars_data.sort(key=lambda x: x["timestamp"])
