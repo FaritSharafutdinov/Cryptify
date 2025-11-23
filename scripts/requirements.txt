@@ -3,9 +3,9 @@ pandas
 pandas_ta
 sqlalchemy
 psycopg2-binary
-scikit-learn
-joblib
-numpy
+numpy==1.26.3
+scikit-learn==1.4.0
+joblib==1.3.2
 xgboost
 tensorflow
 ccxt
