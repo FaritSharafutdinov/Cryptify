@@ -82,18 +82,22 @@ const BTCChart: React.FC<BTCChartProps> = ({
 		if (w > 0) chart.applyOptions({ width: w });
 		chartRef.current = chart;
 		const cs = chart.addCandlestickSeries({
-			upColor: "#26a69a",      // Зеленый цвет для растущих свечей (close > open)
-			downColor: "#ef5350",    // Красный цвет для падающих свечей (close < open)
-			borderUpColor: "#26a69a", // Граница зеленых свечей
-			borderDownColor: "#ef5350", // Граница красных свечей
-			wickUpColor: "#26a69a",   // Фитиль зеленых свечей
-			wickDownColor: "#ef5350",  // Фитиль красных свечей
-			borderVisible: true,      // Показывать границы свечей
 			priceFormat: {
 				type: "price",
 				precision: 2,
 				minMove: 0.01,
 			},
+		});
+		
+		// Применяем цвета отдельно для гарантии - яркие контрастные цвета
+		cs.applyOptions({
+			upColor: "#00ff88",        // Яркий зеленый для растущих свечей (close > open)
+			downColor: "#ff4444",      // Яркий красный для падающих свечей (close < open)
+			borderUpColor: "#00ff88",  // Граница зеленых свечей
+			borderDownColor: "#ff4444", // Граница красных свечей
+			wickUpColor: "#00ff88",    // Фитиль зеленых свечей
+			wickDownColor: "#ff4444",  // Фитиль красных свечей
+			borderVisible: true,       // Показывать границы свечей
 		});
 		candlestickSeriesRef.current = cs;
 		const ls = chart.addLineSeries({
@@ -189,6 +193,13 @@ const BTCChart: React.FC<BTCChartProps> = ({
 		
 		const candlestickData = Array.from(candlestickDataMap.values())
 			.sort((a, b) => (a.time as number) - (b.time as number)); // Ensure ascending order
+		
+		// Проверка: считаем сколько свечей растут и падают для отладки
+		if ((import.meta as any).env?.DEV) {
+			const upCount = candlestickData.filter(c => c.close > c.open).length;
+			const downCount = candlestickData.filter(c => c.close < c.open).length;
+			console.log(`[BTCChart] Candles: ${upCount} up (green), ${downCount} down (red), total: ${candlestickData.length}`);
+		}
 
 		// Format prediction data for line chart
 		// Filter by selected model first, then remove duplicates by timestamp
@@ -217,6 +228,16 @@ const BTCChart: React.FC<BTCChartProps> = ({
 
 		// Set all data at once - no progressive reveal
 		if (candlestickSeriesRef.current) {
+			// Убеждаемся, что цвета применены перед установкой данных - яркие контрастные цвета
+			candlestickSeriesRef.current.applyOptions({
+				upColor: "#00ff88",        // Яркий зеленый для роста (close > open)
+				downColor: "#ff4444",      // Яркий красный для падения (close < open)
+				borderUpColor: "#00ff88",
+				borderDownColor: "#ff4444",
+				wickUpColor: "#00ff88",
+				wickDownColor: "#ff4444",
+				borderVisible: true,
+			});
 			candlestickSeriesRef.current.setData(candlestickData);
 		}
 		if (predictionSeriesRef.current) {
