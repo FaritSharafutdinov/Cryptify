@@ -714,12 +714,10 @@ async def run_data_collector(
     """
     try:
         # Определяем аргументы в зависимости от режима
-        # Примечание: data_collector.py не принимает аргументы командной строки,
-        # режим определяется внутри скрипта. Но мы можем передать переменную окружения.
-        env = {}
-        if request.mode == 'batch':
-            # Для batch режима можно добавить переменную окружения
-            env['DATA_COLLECTOR_MODE'] = 'batch'
+        # Режим передается через переменную окружения DATA_COLLECTOR_MODE
+        env = {
+            'DATA_COLLECTOR_MODE': request.mode  # 'batch' или 'incremental'
+        }
         
         result = await ml_script_service.run_script(
             script_name="data_collector.py",
