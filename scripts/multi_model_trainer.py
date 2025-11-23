@@ -1,9 +1,11 @@
 # Файл: multi_model_trainer.py
 
 import json
+import os
 import pandas as pd
 import numpy as np
 import sys
+from pathlib import Path
 from sqlalchemy import create_engine, text
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
@@ -12,6 +14,23 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 import joblib
 import json
 from tensorflow.keras.metrics import MeanSquaredError
+
+# Определяем рабочую директорию для сохранения файлов
+# Используем директорию скрипта или /scripts в Docker
+SCRIPT_DIR = Path(__file__).parent.resolve()
+MODELS_DIR = SCRIPT_DIR  # Сохраняем модели в той же директории, где находится скрипт
+
+# Проверяем права доступа на запись
+if not os.access(MODELS_DIR, os.W_OK):
+    print(f"⚠️  ВНИМАНИЕ: Нет прав на запись в директорию {MODELS_DIR}")
+    print(f"   Попробуйте исправить права: chmod -R 777 {MODELS_DIR}")
+    # Пытаемся использовать временную директорию как fallback
+    import tempfile
+    MODELS_DIR = Path(tempfile.gettempdir()) / "cryptify_models"
+    MODELS_DIR.mkdir(exist_ok=True)
+    print(f"   Используется временная директория: {MODELS_DIR}")
+else:
+    print(f"✅ Директория для сохранения моделей: {MODELS_DIR}")
 
 # 3rd Party Models
 import xgboost as xgb
@@ -263,7 +282,8 @@ def train_and_evaluate_lr(X_train, X_test, Y_train, Y_test):
             print(f"  -> {model_name} | MAE: {mae:.6f} | RMSE: {rmse:.6f}")
             save_model_metrics(model_name, target_name, metrics)
             MODEL_ERRORS[model_name] = rmse
-        joblib.dump(model, f"{model_name}_{target_name}.joblib")
+        model_path = MODELS_DIR / f"{model_name}_{target_name}.joblib"
+        joblib.dump(model, str(model_path))
 
 def train_and_evaluate_xgb(X_train, X_test, Y_train, Y_test):
     # ... (Остается без изменений)
@@ -284,7 +304,8 @@ def train_and_evaluate_xgb(X_train, X_test, Y_train, Y_test):
             print(f"     MAE: {mae:.6f}, MSE: {mse:.6f}")
             save_model_metrics(model_name, target_name, metrics)
             
-        joblib.dump(model, f"{model_name}_{target_name}.joblib")
+        model_path = MODELS_DIR / f"{model_name}_{target_name}.joblib"
+        joblib.dump(model, str(model_path))
 
 def train_and_evaluate_lstm(X_train, X_test, Y_train, Y_test, scaler_y, scaler_x): # ⚠️ ДОБАВЛЕН СКЕЙЛЕР X
     """Обучает одну LSTM для всех 3 таргетов."""
@@ -334,25 +355,29 @@ def train_and_evaluate_lstm(X_train, X_test, Y_train, Y_test, scaler_y, scaler_x
             save_model_metrics(model_name, target_name, metrics)
             MODEL_ERRORS[model_name] = rmse
     # 4. Сохранение
-    model.save(f"{model_name}.h5", save_format='tf')
+    model_path = MODELS_DIR / f"{model_name}.h5"
+    model.save(str(model_path), save_format='tf')
     
     # ⚠️ НОВОЕ: Сохранение скейлеров X и Y для LSTM
-    joblib.dump(scaler_x, f"{model_name}_X_scaler.joblib")
-    print(f"  -> Сохранен {model_name}_X_scaler.joblib.")
+    scaler_path = MODELS_DIR / f"{model_name}_X_scaler.joblib"
+    joblib.dump(scaler_x, str(scaler_path))
+    print(f"  -> Сохранен {scaler_path}.")
     
     # ⚠️ НОВОЕ: Сохранение скейлеров Y (target) для LSTM 
     # (Хотя predictor.py использует заглушки, это правильно для полноты)
     for h in TARGET_HORIZONS:
         # NOTE: Поскольку LSTM использует один MinMaxScaler для всех Y, 
         # для LR/XGB в продакшене нужно использовать отдельные скейлеры Y.
-        joblib.dump(scaler_y, f"{model_name}_Y_scaler_{h}h.joblib")
+        scaler_y_path = MODELS_DIR / f"{model_name}_Y_scaler_{h}h.joblib"
+        joblib.dump(scaler_y, str(scaler_y_path))
         
     print("==================================================================")
     print("✅ Обучение завершено. Сохранение ошибок моделей (RMSE).")
     try:
-        with open("model_errors.json", "w") as f:
+        errors_path = MODELS_DIR / "model_errors.json"
+        with open(str(errors_path), "w") as f:
             json.dump(MODEL_ERRORS, f, indent=4)
-        print("  -> Ошибки сохранены в model_errors.json")
+        print(f"  -> Ошибки сохранены в {errors_path}")
     except Exception as e:
         print(f"  ❌ Ошибка сохранения model_errors.json: {e}")
 
@@ -389,8 +414,9 @@ def retrain_all_models(X_base, Y_base):
     X_lr_scaled, _, X_xgb_raw, _, Y_train_df, _, scaler_x_lr = preprocess_linear_xgb(X_retrain, Y_retrain, test_size=0.0)
     
     # ⚠️ НОВОЕ: СОХРАНЕНИЕ СКЕЙЛЕРА X ДЛЯ LR/XGB
-    joblib.dump(scaler_x_lr, "LR_X_scaler.joblib")
-    print("  -> Сохранен LR_X_scaler.joblib.")
+    scaler_path = MODELS_DIR / "LR_X_scaler.joblib"
+    joblib.dump(scaler_x_lr, str(scaler_path))
+    print(f"  -> Сохранен {scaler_path}.")
     
     for i, h in enumerate(TARGET_HORIZONS):
         target_name = f"log_return_{h}h"
@@ -398,12 +424,14 @@ def retrain_all_models(X_base, Y_base):
         # LR
         lr_model = LinearRegression()
         lr_model.fit(X_lr_scaled, Y_train_full.iloc[:, i])
-        joblib.dump(lr_model, f"LinearRegression_{target_name}.joblib")
+        lr_model_path = MODELS_DIR / f"LinearRegression_{target_name}.joblib"
+        joblib.dump(lr_model, str(lr_model_path))
         
         # XGBoost
         xgb_model = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=100, random_state=42)
         xgb_model.fit(X_xgb_raw, Y_train_full.iloc[:, i])
-        joblib.dump(xgb_model, f"XGBoost_{target_name}.joblib")
+        xgb_model_path = MODELS_DIR / f"XGBoost_{target_name}.joblib"
+        joblib.dump(xgb_model, str(xgb_model_path))
         
         print(f"  -> {target_name} обновлен для LR и XGBoost.")
 
@@ -415,15 +443,17 @@ def retrain_all_models(X_base, Y_base):
     X_lstm_full, _, Y_lstm_full, _, scaler_y_lstm, scaler_x_lstm = preprocess_lstm(X_retrain, Y_retrain, test_size=0.0)
     
     # ⚠️ НОВОЕ: СОХРАНЕНИЕ СКЕЙЛЕРОВ X И Y ДЛЯ LSTM
-    joblib.dump(scaler_x_lstm, "LSTM_X_scaler.joblib")
-    print("  -> Сохранен LSTM_X_scaler.joblib.")
+    scaler_x_path = MODELS_DIR / "LSTM_X_scaler.joblib"
+    joblib.dump(scaler_x_lstm, str(scaler_x_path))
+    print(f"  -> Сохранен {scaler_x_path}.")
     for h in TARGET_HORIZONS:
         joblib.dump(scaler_y_lstm, f"LSTM_Y_scaler_{h}h.joblib")
 
     try:
         # ⚠️ КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Добавлено MeanSquaredError в custom_objects.
+        lstm_model_path = MODELS_DIR / "LSTM.h5"
         lstm_model = load_model(
-            "LSTM.h5", 
+            str(lstm_model_path), 
             custom_objects={
                 'loss': 'mse',
                 'MeanSquaredError': MeanSquaredError
@@ -440,8 +470,8 @@ def retrain_all_models(X_base, Y_base):
         )
         
         # Сохранение
-        lstm_model.save("LSTM.h5")
-        print(f"  -> LSTM модель успешно дообучена и сохранена в LSTM.h5.")
+        lstm_model.save(str(lstm_model_path))
+        print(f"  -> LSTM модель успешно дообучена и сохранена в {lstm_model_path}.")
         
     except Exception as e:
         print(f"❌ Ошибка при дообучении LSTM. Возможно, модель LSTM.h5 не найдена. Обучите её сначала в режиме 'batch'. Ошибка: {e}")
