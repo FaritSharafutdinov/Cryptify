@@ -105,9 +105,9 @@ export class ApiService {
 	}
 
 	static isUsingMock() {
-		// Use same logic as getHistory would decide (without changing cache)
-		const mode = (viteEnv.MODE || "development") as string;
-		return mode === "development" && backendHealthy === false;
+		// Only return true if we're actually using mock data
+		// This is determined by whether backend is healthy
+		return backendHealthy === false && viteEnv.VITE_USE_MOCK_FALLBACK === "true";
 	}
 	/**
 	 * Get historical BTC data and predictions
@@ -119,9 +119,10 @@ export class ApiService {
 		timeRange?: TimeRange,
 		model?: PredictionModel
 	): Promise<ApiResponse<DashboardData>> {
-		const mode = viteEnv.MODE || "development";
+		// Always try to use real API first, fallback to mock only if explicitly enabled
+		const useMockFallback = viteEnv.VITE_USE_MOCK_FALLBACK === "true";
 
-		// Health check (cached)
+		// Health check (cached) - but don't block on it
 		const now = Date.now();
 		if (backendHealthy === null || now - lastHealthCheck > HEALTH_TTL) {
 			try {
@@ -134,18 +135,7 @@ export class ApiService {
 			}
 		}
 
-		const shouldUseMock =
-			!forceReal && mode === "development" && !backendHealthy;
-		if (shouldUseMock) {
-			await new Promise((r) => setTimeout(r, 300));
-			// Generate dynamic mock data based on time range
-			if (fromTime && toTime) {
-				return generateMockData(fromTime, toTime, timeRange, model);
-			}
-			// Fallback to static mock data if no time params provided
-			return mockData as ApiResponse<DashboardData>;
-		}
-
+		// Try to fetch real data first
 		try {
 			const params = new URLSearchParams();
 			if (fromTime) params.append("from_time", fromTime);
@@ -159,11 +149,17 @@ export class ApiService {
 				throw new Error(`HTTP error! status: ${response.status}`);
 			}
 
-			return await response.json();
+			const data = await response.json();
+			// Mark backend as healthy if we got data
+			backendHealthy = true;
+			return data;
 		} catch (error) {
 			console.error("Failed to fetch history data:", error);
-			// Fallback once to mock if backend unhealthy
-			if (!forceReal) {
+			backendHealthy = false;
+			
+			// Only fallback to mock if explicitly enabled
+			if (useMockFallback && !forceReal) {
+				console.warn("Falling back to mock data");
 				// Generate dynamic mock data based on time range
 				if (fromTime && toTime) {
 					return generateMockData(fromTime, toTime, timeRange, model);
@@ -171,6 +167,8 @@ export class ApiService {
 				// Fallback to static mock data if no time params provided
 				return mockData as ApiResponse<DashboardData>;
 			}
+			
+			// Otherwise, throw the error so UI can handle it
 			throw error;
 		}
 	}
