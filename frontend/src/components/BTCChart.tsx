@@ -82,11 +82,13 @@ const BTCChart: React.FC<BTCChartProps> = ({
 		if (w > 0) chart.applyOptions({ width: w });
 		chartRef.current = chart;
 		const cs = chart.addCandlestickSeries({
-			upColor: "#4caf50",
-			downColor: "#f44336",
-			borderVisible: false,
-			wickUpColor: "#4caf50",
-			wickDownColor: "#f44336",
+			upColor: "#26a69a",      // Зеленый цвет для растущих свечей (close > open)
+			downColor: "#ef5350",    // Красный цвет для падающих свечей (close < open)
+			borderUpColor: "#26a69a", // Граница зеленых свечей
+			borderDownColor: "#ef5350", // Граница красных свечей
+			wickUpColor: "#26a69a",   // Фитиль зеленых свечей
+			wickDownColor: "#ef5350",  // Фитиль красных свечей
+			borderVisible: true,      // Показывать границы свечей
 			priceFormat: {
 				type: "price",
 				precision: 2,
