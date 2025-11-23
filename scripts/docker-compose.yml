@@ -1,0 +1,56 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  # 1. СЕРВИС БАЗЫ ДАННЫХ (Остается без изменений)
+  db:
+    image: postgres:14-alpine
+    container_name: postgres_db
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: my_database
+    ports:
+      - "5432:5432"
+    volumes:
+      # Важно: postgres_data сохранит ваши ранее собранные фичи!
+      - postgres_data:/var/lib/postgresql/data/
+
+  # 2. СЕРВИС ОБУЧЕНИЯ МОДЕЛЕЙ (НОВЫЙ)
+  trainer:
+    # Используем Dockerfile из текущей директории
+    build: .
+    container_name: model_trainer
+    depends_on:
+      - db # Запускаем только после успешного запуска DB
+    environment:
+      # Параметры DB должны совпадать
+      DB_HOST: db
+      DB_USER: user
+      DB_PASSWORD: password
+      DB_NAME: my_database
+    # Монтируем текущую директорию, чтобы сохранять модели (.joblib, .h5) на хост
+    volumes:
+      - .:/app
+    # Запускаем в режиме 'batch' для первого тестирования
+    command: ["python", "multi_model_trainer.py", "batch"]
+    
+# 3. СЕРВИС ПРОГНОЗИРОВАНИЯ (НОВЫЙ)
+  predictor:
+    build: . # Использует тот же Dockerfile с зависимостями ML
+    container_name: model_predictor
+    depends_on:
+      - db
+    environment:
+      DB_HOST: db
+      DB_USER: user
+      DB_PASSWORD: password
+      DB_NAME: my_database
+    volumes:
+      # Важно: монтируем текущую директорию, чтобы видеть модели (.joblib, .h5)
+      - .:/app
+    # Команда запуска прогнозирования
+    command: ["python", "predictor.py"]
+
+volumes:
+  postgres_data:

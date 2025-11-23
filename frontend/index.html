@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Criptify - BTC Price Prediction Dashboard</title>
+		<meta
+			name="description"
+			content="Criptify - Bitcoin Price Prediction Dashboard with AI-powered forecasting"
+		/>
+		<meta
+			name="keywords"
+			content="bitcoin, cryptocurrency, prediction, trading, charts, AI, machine learning"
+		/>
+		<link rel="icon" type="image/svg+xml" href="/bitcoin-icon.svg" />
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap"
+			rel="stylesheet"
+		/>
+		<link
+			rel="stylesheet"
+			href="https://fonts.googleapis.com/icon?family=Material+Icons"
+		/>
+		<style>
+			html,
+			body {
+				height: 100%;
+				margin: 0;
+				padding: 0;
+			}
+			body {
+				font-family: 'Roboto', Arial, sans-serif;
+				background: #0f1115;
+				color: #eee;
+			}
+			#root {
+				min-height: 100vh;
+				width: 100%;
+				display: block;
+			}
+			.no-react-fallback {
+				padding: 32px;
+				margin: 0 auto;
+				max-width: 760px;
+			}
+			.no-react-fallback h1 {
+				color: #f57c00;
+			}
+			.loading-pulse {
+				animation: pulse 1.4s ease-in-out infinite;
+			}
+			@keyframes pulse {
+				0%,
+				100% {
+					opacity: 0.35;
+				}
+				50% {
+					opacity: 1;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<noscript>
+			<div class="no-react-fallback">
+				<h1>🪙 Criptify</h1>
+				<p>JavaScript must be enabled to run this application.</p>
+			</div>
+		</noscript>
+		<div id="root">
+			<div class="no-react-fallback loading-pulse">
+				<h1>🪙 Criptify is loading…</h1>
+				<p>Preparing interface…</p>
+			</div>
+		</div>
+		<script>
+			;(function () {
+				function log(msg, level = 'log') {
+					;(console[level] || console.log)(`[Criptify bootstrap] ${msg}`)
+				}
+				setTimeout(() => {
+					const fallback = document.querySelector(
+						'.no-react-fallback.loading-pulse'
+					)
+					if (fallback) {
+						log(
+							'React still not mounted after 1500ms. You may have opened index.html statically without Vite.',
+							'warn'
+						)
+						if (!window.__VITE_IS_MODERN__) {
+							log(
+								'No Vite environment detected. Run: npm run dev (in the project folder).',
+								'warn'
+							)
+						}
+					}
+				}, 1500)
+				window.addEventListener(
+					'error',
+					e => {
+						if (
+							e.target &&
+							e.target.tagName === 'SCRIPT' &&
+							/main\.tsx/.test(e.target.src)
+						) {
+							log(
+								'Failed to load /src/main.tsx (404). This is expected when serving statically without Vite.',
+								'error'
+							)
+						}
+					},
+					true
+				)
+			})()
+		</script>
+		<script type="module" src="/src/main.tsx"></script>
+	</body>
+</html>

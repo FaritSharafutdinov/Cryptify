@@ -1,0 +1,97 @@
+
+!.env.example
+!.vscode/extensions.json*.swp
+# Coverage directory used by tools like istanbul
+# Dependencies
+# Dependencies & build outputs.vite/
+# Docker / containers
+# ESLint cache
+# Env files.idea/
+# Environment variables
+# Generated assets
+# IDE files
+# Local tooling
+# Logs
+# Mac metadata
+# Misc
+# Node server artifacts
+# OS / Editor
+# OS generated files
+# Optional npm cache directory
+# Package managers*.log
+# Production build
+# Python (if backend added later)
+# Root ignore file (frontend + future backend artifacts)# Core dependencies & build artifacts
+# Runtime / PIDs
+# Runtime data
+# Storybook build outputs
+# Tests
+# TypeScript build info# OS / Editor
+# TypeScript cache
+**/.env.local# Typescript build info
+**/node_modules/build/
+*.log
+*.log!.env.example
+*.pid
+*.pid.lock
+*.pyc
+*.pyd
+*.pyo
+*.seed
+*.swo
+*.swp
+*.tsbuildinfo
+*.tsbuildinfo
+*~
+.AppleDouble
+.DS_Store
+.DS_Store?
+.LSOverride
+.Spotlight-V100
+.Trashes
+._*
+.direnv/
+.env
+.env.*!.vscode/extensions.json
+.env.development.local
+.env.local
+.env.production.local
+.env.test.local
+.env.vscode/*
+.envrc
+.eslintcache
+.idea/
+.junit/
+.next/yarn-debug.log*
+.npm
+.out
+.out/yarn-error.log*
+.pnpm-debug.log*
+.serverless/
+.storybook-out
+.venv/
+.vercel/
+.vite/coverage/
+.vscode/
+.vscode/*# Misc
+Thumbs.db
+Thumbs.db*.pid
+__pycache__/
+build/
+build/# Logs
+coverage/
+coverage/npm-debug.log*
+dist/
+ehthumbs.db
+logs
+node_modules/
+node_modules/dist/
+npm-debug.log*
+npm-debug.log*.env.*
+pids
+public/*.cache.*
+reports/
+yarn-debug.log*
+yarn-debug.log*# Env files
+yarn-error.log*
+yarn-error.log*.env

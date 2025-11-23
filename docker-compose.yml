@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL Database
   postgres:
@@ -37,6 +35,7 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
+      - ./scripts:/scripts
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -44,32 +43,6 @@ services:
       timeout: 10s
       retries: 3
 
-  # ML Service (placeholder for future implementation)
-  ml-service:
-    image: python:3.9-slim
-    container_name: criptify_ml
-    environment:
-      DATABASE_URL: postgresql://criptify_user:criptify_password@postgres:5432/criptify_db
-    depends_on:
-      postgres:
-        condition: service_healthy
-    volumes:
-      - ./ml:/app
-      - ml_models:/app/models
-    restart: unless-stopped
-    command: ["tail", "-f", "/dev/null"]  # Keep container running for now
-
-  # Frontend (placeholder for future implementation)
-  frontend:
-    image: node:18-alpine
-    container_name: criptify_frontend
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./frontend:/app
-    working_dir: /app
-    command: ["tail", "-f", "/dev/null"]  # Keep container running for now
-
 volumes:
   postgres_data:
-  ml_models:
+

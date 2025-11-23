@@ -1,4 +1,15 @@
-from sqlalchemy import create_engine, Column, Integer, Float, DateTime, String, Text
+from sqlalchemy import (
+    create_engine,
+    Column,
+    Integer,
+    Float,
+    Numeric,
+    DateTime,
+    String,
+    JSON,
+    Index,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -35,17 +46,28 @@ class RawBar(Base):
 
 
 class Prediction(Base):
-    """ML model predictions"""
+    """ML model predictions (updated to match ML scripts schema)"""
 
     __tablename__ = "predictions"
 
-    id = Column(Integer, primary_key=True, index=True)
-    timestamp = Column(
-        DateTime, nullable=False, index=True
-    )  # Time when prediction was made
-    prediction_horizon = Column(Integer, nullable=False, default=48)  # Hours ahead
-    predicted_value = Column(Float, nullable=False)  # Predicted price
-    created_at = Column(DateTime, default=datetime.utcnow)
+    # Composite primary key matching ML scripts
+    time = Column(DateTime(timezone=True), primary_key=True, nullable=False, index=True)
+    model_name = Column(String(255), primary_key=True, nullable=False)
+    target_hours = Column(Integer, primary_key=True, nullable=False)
+    
+    # Prediction value (log return)
+    prediction_log_return = Column(Float, nullable=True)
+    
+    # Confidence intervals
+    ci_low = Column(Float, nullable=True)
+    ci_high = Column(Float, nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    
+    # Index for faster queries
+    __table_args__ = (
+        Index('idx_predictions_time', 'time'),
+    )
 
 
 class ModelMetric(Base):
@@ -58,6 +80,64 @@ class ModelMetric(Base):
     metric_name = Column(String(50), nullable=False)  # MAE, RMSE, etc.
     metric_value = Column(Float, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class MLModel(Base):
+    """ML model registry (updated to match ML scripts schema)"""
+
+    __tablename__ = "ml_models"
+
+    model_name = Column(String(255), primary_key=True, nullable=False, index=True)
+    metrics = Column(JSONB, nullable=True)  # JSONB for better performance in PostgreSQL
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class BTCFeature(Base):
+    """BTC features table from ML data collector"""
+
+    __tablename__ = "btc_features_1h"
+
+    timestamp = Column(DateTime(timezone=False), primary_key=True, nullable=False, index=True)
+    
+    # Basic price data
+    Close = Column(Numeric, nullable=True)
+    Open_Interest = Column(Numeric, nullable=True)
+    
+    # Returns and price changes
+    log_return = Column(Numeric, nullable=True)
+    sp500_log_return = Column("SP500_log_return", Numeric, nullable=True)
+    price_range = Column(Numeric, nullable=True)
+    price_change = Column(Numeric, nullable=True)
+    high_to_prev_close = Column(Numeric, nullable=True)
+    low_to_prev_close = Column(Numeric, nullable=True)
+    
+    # Volatility and volume
+    volatility_5 = Column(Numeric, nullable=True)
+    volatility_14 = Column(Numeric, nullable=True)
+    volatility_21 = Column(Numeric, nullable=True)
+    volume_ma_5 = Column(Numeric, nullable=True)
+    volume_ma_14 = Column(Numeric, nullable=True)
+    volume_ma_21 = Column(Numeric, nullable=True)
+    volume_zscore = Column(Numeric, nullable=True)
+    
+    # Technical indicators
+    macd_safe = Column("MACD_safe", Numeric, nullable=True)
+    macds_safe = Column("MACDs_safe", Numeric, nullable=True)
+    macdh_safe = Column("MACDh_safe", Numeric, nullable=True)
+    rsi_safe = Column("RSI_safe", Numeric, nullable=True)
+    atr_safe_norm = Column("ATR_safe_norm", Numeric, nullable=True)
+    
+    # Temporal features
+    hour_sin = Column(Numeric, nullable=True)
+    hour_cos = Column(Numeric, nullable=True)
+    day_sin = Column(Numeric, nullable=True)
+    day_cos = Column(Numeric, nullable=True)
+    month_sin = Column(Numeric, nullable=True)
+    month_cos = Column(Numeric, nullable=True)
+    
+    __table_args__ = (
+        Index('idx_features_timestamp', 'timestamp', unique=True),
+    )
 
 
 # Dependency to get database session
