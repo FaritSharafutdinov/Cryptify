@@ -55,6 +55,20 @@ logs/
 # *.h5
 # *.pkl
 
+# Data files (large CSV files)
+*.csv
+!**/example*.csv
+
+# Technical Report (keep only PDF)
+TECHNICAL_REPORT.html
+TECHNICAL_REPORT.jpeg
+TECHNICAL_REPORT.png
+TECHNICAL_REPORT.md
+
+# Temporary output images
+output*.png
+3333.png
+
 # Temporary files
 *.tmp
 *.temp
