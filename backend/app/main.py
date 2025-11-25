@@ -275,8 +275,22 @@ async def get_history(
                 most_recent_time = predictions[0].time
                 # Filter to only predictions from the most recent time
                 predictions = [p for p in predictions if p.time == most_recent_time]
-                # Limit to 9 predictions max (3 models × 3 horizons)
-                predictions = predictions[:9]
+                
+                # Additional filtering by model if specified (in case SQL filter didn't work perfectly)
+                if model:
+                    if model == "linear_regression":
+                        predictions = [p for p in predictions if "LinearRegression" in (p.model_name or "") or "LR" in (p.model_name or "")]
+                    elif model == "xgboost":
+                        predictions = [p for p in predictions if "XGBoost" in (p.model_name or "") or "XGB" in (p.model_name or "")]
+                    elif model == "lstm":
+                        predictions = [p for p in predictions if "LSTM" in (p.model_name or "")]
+                
+                # If model filter is applied, limit to 3 predictions (one per horizon: 6h, 12h, 24h)
+                # If no model filter, limit to 9 predictions (3 models × 3 horizons)
+                if model:
+                    predictions = predictions[:3]
+                else:
+                    predictions = predictions[:9]
 
         # Format predictions data for frontend
         predictions_data = []
