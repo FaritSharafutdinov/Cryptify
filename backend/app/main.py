@@ -224,18 +224,26 @@ async def get_history(
                 })
 
         # Query predictions data
-        # For short ranges (1d), get the most recent predictions regardless of when they were made
-        # This ensures we always show predictions even if data collection is delayed
+        # For short ranges (1d), get only the most recent prediction batch (same timestamp)
         time_range_hours = (to_time - from_time).total_seconds() / 3600
         if time_range_hours <= 48:  # For 1d or 2d ranges
-            # Get recent predictions (last 7 days) and filter those predicting into our range
-            # This handles cases where predictions were made before the time range starts
-            predictions_query = (
-                db.query(Prediction)
-                .filter(Prediction.time >= to_time - timedelta(days=7))
-                .filter(Prediction.time <= to_time)
-            )
-            # We'll filter by predicted_time later in Python
+            # First, find the most recent prediction time in the database
+            from sqlalchemy import func
+            max_time_query = db.query(func.max(Prediction.time)).scalar()
+            
+            if max_time_query:
+                # Get only predictions from the most recent timestamp
+                predictions_query = (
+                    db.query(Prediction)
+                    .filter(Prediction.time == max_time_query)
+                )
+            else:
+                # Fallback: get recent predictions (last 7 days)
+                predictions_query = (
+                    db.query(Prediction)
+                    .filter(Prediction.time >= to_time - timedelta(days=7))
+                    .filter(Prediction.time <= to_time)
+                )
         else:
             # For longer ranges, use normal time filtering
             predictions_query = (
@@ -268,15 +276,11 @@ async def get_history(
         
         predictions = predictions_query.order_by(Prediction.time.desc()).all()
         
-        # For short ranges (1d), show only the most recent prediction batch (same timestamp)
+        # For short ranges (1d), predictions are already filtered by SQL to only the most recent timestamp
+        # Now we just need to apply model filter (if specified) and limit the count
         if time_range_hours <= 48:
             if predictions:
-                # Get the most recent prediction time
-                most_recent_time = predictions[0].time
-                # Filter to only predictions from the most recent time
-                predictions = [p for p in predictions if p.time == most_recent_time]
-                
-                # Additional filtering by model if specified (in case SQL filter didn't work perfectly)
+                # Additional filtering by model if specified (in case SQL filter needs refinement)
                 if model:
                     if model == "linear_regression":
                         predictions = [p for p in predictions if "LinearRegression" in (p.model_name or "") or "LR" in (p.model_name or "")]
@@ -284,6 +288,9 @@ async def get_history(
                         predictions = [p for p in predictions if "XGBoost" in (p.model_name or "") or "XGB" in (p.model_name or "")]
                     elif model == "lstm":
                         predictions = [p for p in predictions if "LSTM" in (p.model_name or "")]
+                
+                # Sort by target_hours to ensure consistent order (6h, 12h, 24h)
+                predictions.sort(key=lambda p: p.target_hours)
                 
                 # If model filter is applied, limit to 3 predictions (one per horizon: 6h, 12h, 24h)
                 # If no model filter, limit to 9 predictions (3 models × 3 horizons)
