@@ -268,10 +268,15 @@ async def get_history(
         
         predictions = predictions_query.order_by(Prediction.time.desc()).all()
         
-        # For short ranges (1d), limit to most recent predictions only
+        # For short ranges (1d), show only the most recent prediction batch (same timestamp)
         if time_range_hours <= 48:
-            # Limit to last 9 predictions (3 models × 3 horizons max)
-            predictions = predictions[:9]
+            if predictions:
+                # Get the most recent prediction time
+                most_recent_time = predictions[0].time
+                # Filter to only predictions from the most recent time
+                predictions = [p for p in predictions if p.time == most_recent_time]
+                # Limit to 9 predictions max (3 models × 3 horizons)
+                predictions = predictions[:9]
 
         # Format predictions data for frontend
         predictions_data = []
