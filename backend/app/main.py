@@ -267,6 +267,11 @@ async def get_history(
                 )
         
         predictions = predictions_query.order_by(Prediction.time.desc()).all()
+        
+        # For short ranges (1d), limit to most recent predictions only
+        if time_range_hours <= 48:
+            # Limit to last 9 predictions (3 models × 3 horizons max)
+            predictions = predictions[:9]
 
         # Format predictions data for frontend
         predictions_data = []
@@ -279,10 +284,12 @@ async def get_history(
             
             predicted_time = pred_time + timedelta(hours=pred.target_hours)
             
-            # For 1d ranges, only include predictions that predict into our time range
+            # For 1d ranges, show recent predictions regardless of predicted_time
+            # We already filtered by prediction time (last 7 days), so just take the most recent ones
+            # Don't filter by predicted_time for short ranges - show all recent predictions
             if time_range_hours <= 48:
-                if predicted_time < from_time or predicted_time > to_time:
-                    continue
+                # For 1d, show all recent predictions (limit to last 10 to avoid too many)
+                pass
             # Get the last close price to calculate predicted_value from log_return
             last_close = None
             if raw_bars_data:
