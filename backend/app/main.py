@@ -106,6 +106,12 @@ async def get_history(
     to_time: Optional[datetime] = Query(
         None, description="End time for data retrieval"
     ),
+    time_range: Optional[str] = Query(
+        None, description="Time range shortcut: 1d, 1w, 1m"
+    ),
+    model: Optional[str] = Query(
+        None, description="Filter predictions by model name"
+    ),
     db: Session = Depends(get_db),
 ):
     """
@@ -115,6 +121,16 @@ async def get_history(
     Format adapted for frontend compatibility.
     """
     try:
+        # Handle time_range shortcut parameter
+        if time_range and not from_time:
+            now = datetime.utcnow()
+            if time_range == "1d":
+                from_time = now - timedelta(hours=24)
+            elif time_range == "1w":
+                from_time = now - timedelta(days=7)
+            elif time_range == "1m":
+                from_time = now - timedelta(days=30)
+        
         # Set default time range if not provided (last 7 days)
         if not from_time:
             from_time = datetime.utcnow() - timedelta(days=7)
@@ -208,19 +224,65 @@ async def get_history(
                 })
 
         # Query predictions data
-        predictions_query = (
-            db.query(Prediction)
-            .filter(
-                and_(Prediction.time >= from_time, Prediction.time <= to_time)
+        # For short ranges (1d), get the most recent predictions regardless of when they were made
+        # This ensures we always show predictions even if data collection is delayed
+        time_range_hours = (to_time - from_time).total_seconds() / 3600
+        if time_range_hours <= 48:  # For 1d or 2d ranges
+            # Get recent predictions (last 7 days) and filter those predicting into our range
+            # This handles cases where predictions were made before the time range starts
+            predictions_query = (
+                db.query(Prediction)
+                .filter(Prediction.time >= to_time - timedelta(days=7))
+                .filter(Prediction.time <= to_time)
             )
-            .order_by(Prediction.time.asc())
-        )
-
-        predictions = predictions_query.all()
+            # We'll filter by predicted_time later in Python
+        else:
+            # For longer ranges, use normal time filtering
+            predictions_query = (
+                db.query(Prediction)
+                .filter(
+                    and_(Prediction.time >= from_time, Prediction.time <= to_time)
+                )
+            )
+        
+        # Filter by model if specified
+        if model:
+            # Map frontend model names to backend model names
+            if model == "linear_regression":
+                predictions_query = predictions_query.filter(
+                    (Prediction.model_name.like("%LinearRegression%")) |
+                    (Prediction.model_name.like("%LR%")) |
+                    (Prediction.model_name == "linear_regression")
+                )
+            elif model == "xgboost":
+                predictions_query = predictions_query.filter(
+                    (Prediction.model_name.like("%XGBoost%")) |
+                    (Prediction.model_name.like("%XGB%")) |
+                    (Prediction.model_name == "xgboost")
+                )
+            elif model == "lstm":
+                predictions_query = predictions_query.filter(
+                    (Prediction.model_name.like("%LSTM%")) |
+                    (Prediction.model_name == "lstm")
+                )
+        
+        predictions = predictions_query.order_by(Prediction.time.desc()).all()
 
         # Format predictions data for frontend
         predictions_data = []
         for pred in predictions:
+            # For short ranges, filter predictions where predicted_time falls in our range
+            pred_time = pred.time
+            if pred_time.tzinfo is None:
+                from datetime import timezone
+                pred_time = pred_time.replace(tzinfo=timezone.utc)
+            
+            predicted_time = pred_time + timedelta(hours=pred.target_hours)
+            
+            # For 1d ranges, only include predictions that predict into our time range
+            if time_range_hours <= 48:
+                if predicted_time < from_time or predicted_time > to_time:
+                    continue
             # Get the last close price to calculate predicted_value from log_return
             last_close = None
             if raw_bars_data:
