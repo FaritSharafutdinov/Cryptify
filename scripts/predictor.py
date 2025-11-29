@@ -165,6 +165,32 @@ def load_model_errors():
         print("❌ Ошибка: Файл model_errors.json не найден. Интервалы CI будут 0.")
     except Exception as e:
         print(f"❌ Ошибка загрузки model_errors.json: {e}")
+
+def cleanup_old_predictions(keep_hours: int = 48):
+    """
+    Удаляет старые прогнозы, оставляя только последние N часов.
+    
+    Args:
+        keep_hours: Количество часов прогнозов для сохранения (по умолчанию 48 часов = 2 дня)
+    """
+    try:
+        cutoff_time = datetime.utcnow() - timedelta(hours=keep_hours)
+        
+        delete_sql = text("""
+            DELETE FROM predictions 
+            WHERE time < :cutoff_time
+        """)
+        
+        with ENGINE.begin() as connection:
+            result = connection.execute(delete_sql, {"cutoff_time": cutoff_time})
+            deleted_count = result.rowcount
+        
+        if deleted_count > 0:
+            print(f"🧹 Удалено {deleted_count} старых прогнозов (старше {keep_hours} часов)")
+        else:
+            print(f"✅ Старых прогнозов для удаления не найдено (сохраняем последние {keep_hours} часов)")
+    except Exception as e:
+        print(f"⚠️ Ошибка при очистке старых прогнозов: {e}")
         
 # Файл: predictor.py
 
@@ -309,6 +335,10 @@ def run_prediction():
     print("=================================================")
     
     ensure_prediction_table_exists()
+    
+    # Очистка старых прогнозов перед генерацией новых
+    # Оставляем только последние 48 часов (2 дня) прогнозов
+    cleanup_old_predictions(keep_hours=48)
     
     # 1. Загружаем данные
     # Загружаем с запасом на LSTM (48) + 5

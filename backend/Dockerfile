@@ -13,24 +13,26 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# Install Python dependencies (includes numpy and scikit-learn)
+# Install Python dependencies
+# Install numpy first, then scikit-learn to ensure binary compatibility
+RUN pip install --no-cache-dir numpy==1.26.3
+
+# Install other base dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Install ML scripts dependencies
-# Note: pandas_ta requires Python 3.12+
-# numpy and scikit-learn are already installed from requirements.txt
+# Note: pandas_ta 0.3.14b0 is compatible with numpy 1.26.3
+# Newer versions (0.4+) require numpy>=2.2.6
 RUN pip install --no-cache-dir \
-    pandas_ta \
+    "pandas_ta==0.3.14b0" \
     ccxt \
     yfinance \
     xgboost \
     tensorflow
 
-# Reinstall numpy and scikit-learn to ensure binary compatibility
+# Reinstall scikit-learn to ensure binary compatibility with numpy
 # This fixes the "numpy.dtype size changed" error
-RUN pip install --no-cache-dir --force-reinstall --no-deps \
-    numpy==1.26.3 \
-    scikit-learn==1.4.0
+RUN pip install --no-cache-dir --force-reinstall scikit-learn==1.4.0
 
 # Copy application code
 COPY . .
