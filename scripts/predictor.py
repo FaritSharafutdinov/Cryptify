@@ -90,15 +90,34 @@ def ensure_prediction_table_exists():
             model_name VARCHAR(255) NOT NULL,
             target_hours INTEGER NOT NULL,
             prediction_log_return FLOAT, -- Сохраняем немасштабированный лог-доход
+            ci_low FLOAT, -- Нижняя граница доверительного интервала
+            ci_high FLOAT, -- Верхняя граница доверительного интервала
             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
             PRIMARY KEY (time, model_name, target_hours)
         );
         CREATE INDEX IF NOT EXISTS idx_predictions_time ON predictions (time);
     """)
     
+    # Добавляем колонки ci_low и ci_high если таблица уже существует
+    alter_table_sql = text("""
+        DO $$ 
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                          WHERE table_name='predictions' AND column_name='ci_low') THEN
+                ALTER TABLE predictions ADD COLUMN ci_low FLOAT;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                          WHERE table_name='predictions' AND column_name='ci_high') THEN
+                ALTER TABLE predictions ADD COLUMN ci_high FLOAT;
+            END IF;
+        END $$;
+    """)
+    
     try:
         with ENGINE.begin() as connection:
             connection.execute(create_table_sql)
+            # Добавляем колонки если таблица уже существовала
+            connection.execute(alter_table_sql)
         print("Таблица predictions готова.")
     except Exception as e:
         print(f"❌ Критическая ошибка при создании таблицы predictions: {e}")
@@ -332,7 +351,7 @@ def run_prediction():
                 ci_high = prediction + ci_margin
                 
                 # ⚠️ ИЗМЕНЕНИЕ ВЫЗОВА: Теперь передаем CI границы
-                save_prediction(prediction_time, model_name_full, h, prediction, ci_low, ci_high)
+                save_prediction(prediction_time, model_name, h, prediction, ci_low, ci_high)
                 
                 # ⚠️ ИЗМЕНЕНИЕ ВЫВОДА: Теперь выводим CI
                 print(f"  -> {model_name_full} {h}h Log Ret: {prediction:.8f} | CI 95%: [{ci_low:.8f}, {ci_high:.8f}]")

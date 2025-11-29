@@ -45,25 +45,9 @@ BODY=$(echo "$RESPONSE" | sed '/HTTP_CODE:/d')
 
 if [ "$HTTP_CODE" = "200" ]; then
     log "✅ Сбор данных успешно запущен"
-    echo "$BODY" | python3 -m json.tool | tee -a "$LOG_FILE"
-    
-    # После сбора данных запускаем predictor
-    log "Запуск predictor для генерации прогнозов..."
-    PRED_RESPONSE=$(curl -s -X POST 'http://localhost:8000/ml/predictor/run' \
-        -H 'Content-Type: application/json' \
-        -d '{"timeout": 300}' \
-        -w "\nHTTP_CODE:%{http_code}")
-    
-    PRED_HTTP_CODE=$(echo "$PRED_RESPONSE" | grep -o "HTTP_CODE:[0-9]*" | cut -d: -f2)
-    PRED_BODY=$(echo "$PRED_RESPONSE" | sed '/HTTP_CODE:/d')
-    
-    if [ "$PRED_HTTP_CODE" = "200" ]; then
-        log "✅ Прогнозы успешно сгенерированы"
-        echo "$PRED_BODY" | python3 -m json.tool | tee -a "$LOG_FILE"
-    else
-        log "⚠️ Ошибка при генерации прогнозов: HTTP $PRED_HTTP_CODE"
-        echo "$PRED_BODY" | tee -a "$LOG_FILE"
-    fi
+    echo "$BODY" | python3 -m json.tool 2>/dev/null | tee -a "$LOG_FILE" || echo "$BODY" | tee -a "$LOG_FILE"
+    # Примечание: predictor теперь запускается отдельным cron job в 5 минут каждого часа
+    # Это обеспечивает независимость и надежность обновления прогнозов
 else
     log "❌ Ошибка при сборе данных: HTTP $HTTP_CODE"
     echo "$BODY" | tee -a "$LOG_FILE"
