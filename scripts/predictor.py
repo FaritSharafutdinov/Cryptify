@@ -168,44 +168,70 @@ def load_model_errors():
 
 def cleanup_old_predictions(keep_hours: int = 48):
     """
-    Удаляет старые прогнозы, оставляя только последние N часов.
+    Удаляет прогнозы, для которых уже есть исторические данные.
+    Оставляет только прогнозы на будущее (где predicted_time > последний timestamp из features).
     
     Args:
-        keep_hours: Количество часов прогнозов для сохранения (по умолчанию 48 часов = 2 дня)
+        keep_hours: Не используется, оставлен для обратной совместимости
     """
     try:
         from datetime import timezone
-        # Используем timezone-aware datetime для корректного сравнения
-        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=keep_hours)
         
-        # Сначала посчитаем сколько будет удалено
-        count_sql = text("""
-            SELECT COUNT(*) 
-            FROM predictions 
-            WHERE time < :cutoff_time
+        # Получаем последний timestamp из таблицы features (это последние реальные данные)
+        last_data_sql = text(f"""
+            SELECT MAX(timestamp) 
+            FROM {DB_TABLE_FEATURES}
         """)
         
         with ENGINE.connect() as connection:
-            count_result = connection.execute(count_sql, {"cutoff_time": cutoff_time})
+            last_data_result = connection.execute(last_data_sql)
+            last_data_time = last_data_result.scalar()
+        
+        if last_data_time is None:
+            print("⚠️ Таблица features пуста, пропускаем очистку прогнозов")
+            return
+        
+        # Преобразуем в datetime если нужно
+        if isinstance(last_data_time, str):
+            last_data_time = pd.to_datetime(last_data_time)
+        elif not isinstance(last_data_time, datetime):
+            last_data_time = pd.to_datetime(last_data_time).to_pydatetime()
+        
+        # Делаем timezone-aware если нужно
+        if last_data_time.tzinfo is None:
+            last_data_time = last_data_time.replace(tzinfo=timezone.utc)
+        
+        print(f"📊 Последние реальные данные: {last_data_time}")
+        
+        # Удаляем прогнозы, где predicted_time (time + target_hours) <= last_data_time
+        # То есть удаляем все прогнозы, которые уже "сбылись" или относятся к прошлому
+        count_sql = text("""
+            SELECT COUNT(*) 
+            FROM predictions 
+            WHERE (time + (target_hours || ' hours')::interval) <= :last_data_time
+        """)
+        
+        with ENGINE.connect() as connection:
+            count_result = connection.execute(count_sql, {"last_data_time": last_data_time})
             count = count_result.scalar()
         
         if count == 0:
-            print(f"✅ Старых прогнозов для удаления не найдено (сохраняем последние {keep_hours} часов)")
+            print(f"✅ Прогнозов для удаления не найдено (все прогнозы на будущее)")
             return
         
-        print(f"🧹 Найдено {count} старых прогнозов для удаления (старше {cutoff_time} UTC)")
+        print(f"🧹 Найдено {count} прогнозов для удаления (predicted_time <= {last_data_time})")
         
         delete_sql = text("""
             DELETE FROM predictions 
-            WHERE time < :cutoff_time
+            WHERE (time + (target_hours || ' hours')::interval) <= :last_data_time
         """)
         
         with ENGINE.begin() as connection:
-            result = connection.execute(delete_sql, {"cutoff_time": cutoff_time})
+            result = connection.execute(delete_sql, {"last_data_time": last_data_time})
             deleted_count = result.rowcount
         
         if deleted_count > 0:
-            print(f"🧹 Удалено {deleted_count} старых прогнозов (старше {keep_hours} часов)")
+            print(f"🧹 Удалено {deleted_count} прогнозов (для которых уже есть реальные данные)")
             
             # Показываем сколько осталось
             remaining_sql = text("SELECT COUNT(*) FROM predictions")

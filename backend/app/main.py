@@ -944,25 +944,47 @@ async def run_predictor(
         )
 
 
-@app.delete("/predictions/cleanup")
+@app.post("/predictions/cleanup")
 async def cleanup_old_predictions_endpoint(
-    keep_hours: int = Query(48, ge=1, le=720, description="Количество часов прогнозов для сохранения"),
+    keep_hours: int = Query(48, ge=1, le=720, description="Не используется, оставлен для обратной совместимости"),
     db: Session = Depends(get_db),
 ):
     """
-    Удаляет старые прогнозы, оставляя только последние N часов.
-    По умолчанию сохраняет последние 48 часов (2 дня).
+    Удаляет прогнозы, для которых уже есть исторические данные.
+    Оставляет только прогнозы на будущее (где predicted_time > последний timestamp из features).
     """
     try:
         from datetime import timezone
+        from sqlalchemy import func, text
         
-        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=keep_hours)
+        # Получаем последний timestamp из таблицы features
+        last_data_query = db.execute(text(f"SELECT MAX(timestamp) FROM btc_features_1h"))
+        last_data_time = last_data_query.scalar()
         
-        logger.info(f"Очистка прогнозов: cutoff_time={cutoff_time}, keep_hours={keep_hours}")
+        if last_data_time is None:
+            return {
+                "status": "error",
+                "message": "Таблица features пуста, невозможно определить какие прогнозы удалять",
+                "deleted_count": 0
+            }
         
-        # Сначала посчитаем сколько будет удалено
-        count_query = db.query(Prediction).filter(Prediction.time < cutoff_time)
-        count = count_query.count()
+        # Делаем timezone-aware если нужно
+        if last_data_time.tzinfo is None:
+            from datetime import timezone as tz
+            last_data_time = last_data_time.replace(tzinfo=tz.utc)
+        
+        logger.info(f"Очистка прогнозов: последние реальные данные = {last_data_time}")
+        
+        # Удаляем прогнозы, где predicted_time (time + target_hours) <= last_data_time
+        # Используем SQL для вычисления predicted_time
+        count_sql = text("""
+            SELECT COUNT(*) 
+            FROM predictions 
+            WHERE (time + (target_hours || ' hours')::interval) <= :last_data_time
+        """)
+        
+        count_result = db.execute(count_sql, {"last_data_time": last_data_time})
+        count = count_result.scalar()
         
         logger.info(f"Найдено {count} прогнозов для удаления")
         
@@ -970,14 +992,20 @@ async def cleanup_old_predictions_endpoint(
             remaining = db.query(Prediction).count()
             return {
                 "status": "success",
-                "message": f"Старых прогнозов для удаления не найдено (сохраняем последние {keep_hours} часов)",
+                "message": "Прогнозов для удаления не найдено (все прогнозы на будущее)",
                 "deleted_count": 0,
                 "remaining_count": remaining,
-                "cutoff_time": cutoff_time.isoformat()
+                "last_data_time": last_data_time.isoformat()
             }
         
-        # Удаляем старые прогнозы
-        deleted_count = count_query.delete(synchronize_session=False)
+        # Удаляем прогнозы
+        delete_sql = text("""
+            DELETE FROM predictions 
+            WHERE (time + (target_hours || ' hours')::interval) <= :last_data_time
+        """)
+        
+        result = db.execute(delete_sql, {"last_data_time": last_data_time})
+        deleted_count = result.rowcount
         db.commit()
         
         remaining_count = db.query(Prediction).count()
@@ -986,11 +1014,10 @@ async def cleanup_old_predictions_endpoint(
         
         return {
             "status": "success",
-            "message": f"Успешно удалено {deleted_count} старых прогнозов",
+            "message": f"Успешно удалено {deleted_count} прогнозов (для которых уже есть реальные данные)",
             "deleted_count": deleted_count,
             "remaining_count": remaining_count,
-            "cutoff_time": cutoff_time.isoformat(),
-            "keep_hours": keep_hours
+            "last_data_time": last_data_time.isoformat()
         }
         
     except Exception as e:
