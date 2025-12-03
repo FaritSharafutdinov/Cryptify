@@ -944,6 +944,64 @@ async def run_predictor(
         )
 
 
+@app.delete("/predictions/cleanup")
+async def cleanup_old_predictions_endpoint(
+    keep_hours: int = Query(48, ge=1, le=720, description="Количество часов прогнозов для сохранения"),
+    db: Session = Depends(get_db),
+):
+    """
+    Удаляет старые прогнозы, оставляя только последние N часов.
+    По умолчанию сохраняет последние 48 часов (2 дня).
+    """
+    try:
+        from datetime import timezone
+        
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=keep_hours)
+        
+        logger.info(f"Очистка прогнозов: cutoff_time={cutoff_time}, keep_hours={keep_hours}")
+        
+        # Сначала посчитаем сколько будет удалено
+        count_query = db.query(Prediction).filter(Prediction.time < cutoff_time)
+        count = count_query.count()
+        
+        logger.info(f"Найдено {count} прогнозов для удаления")
+        
+        if count == 0:
+            remaining = db.query(Prediction).count()
+            return {
+                "status": "success",
+                "message": f"Старых прогнозов для удаления не найдено (сохраняем последние {keep_hours} часов)",
+                "deleted_count": 0,
+                "remaining_count": remaining,
+                "cutoff_time": cutoff_time.isoformat()
+            }
+        
+        # Удаляем старые прогнозы
+        deleted_count = count_query.delete(synchronize_session=False)
+        db.commit()
+        
+        remaining_count = db.query(Prediction).count()
+        
+        logger.info(f"Удалено {deleted_count} прогнозов, осталось {remaining_count}")
+        
+        return {
+            "status": "success",
+            "message": f"Успешно удалено {deleted_count} старых прогнозов",
+            "deleted_count": deleted_count,
+            "remaining_count": remaining_count,
+            "cutoff_time": cutoff_time.isoformat(),
+            "keep_hours": keep_hours
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Ошибка при очистке прогнозов: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка очистки прогнозов: {str(e)}"
+        )
+
+
 @app.get("/ml/scripts/status/{script_name}")
 async def get_script_status(script_name: str):
     """Получает статус выполнения скрипта"""

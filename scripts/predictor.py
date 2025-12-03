@@ -174,7 +174,26 @@ def cleanup_old_predictions(keep_hours: int = 48):
         keep_hours: Количество часов прогнозов для сохранения (по умолчанию 48 часов = 2 дня)
     """
     try:
-        cutoff_time = datetime.utcnow() - timedelta(hours=keep_hours)
+        from datetime import timezone
+        # Используем timezone-aware datetime для корректного сравнения
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=keep_hours)
+        
+        # Сначала посчитаем сколько будет удалено
+        count_sql = text("""
+            SELECT COUNT(*) 
+            FROM predictions 
+            WHERE time < :cutoff_time
+        """)
+        
+        with ENGINE.connect() as connection:
+            count_result = connection.execute(count_sql, {"cutoff_time": cutoff_time})
+            count = count_result.scalar()
+        
+        if count == 0:
+            print(f"✅ Старых прогнозов для удаления не найдено (сохраняем последние {keep_hours} часов)")
+            return
+        
+        print(f"🧹 Найдено {count} старых прогнозов для удаления (старше {cutoff_time} UTC)")
         
         delete_sql = text("""
             DELETE FROM predictions 
@@ -187,10 +206,18 @@ def cleanup_old_predictions(keep_hours: int = 48):
         
         if deleted_count > 0:
             print(f"🧹 Удалено {deleted_count} старых прогнозов (старше {keep_hours} часов)")
+            
+            # Показываем сколько осталось
+            remaining_sql = text("SELECT COUNT(*) FROM predictions")
+            with ENGINE.connect() as connection:
+                remaining = connection.execute(remaining_sql).scalar()
+            print(f"📊 Осталось прогнозов в базе: {remaining}")
         else:
-            print(f"✅ Старых прогнозов для удаления не найдено (сохраняем последние {keep_hours} часов)")
+            print(f"⚠️ Запрос на удаление выполнен, но ничего не удалено")
     except Exception as e:
         print(f"⚠️ Ошибка при очистке старых прогнозов: {e}")
+        import traceback
+        traceback.print_exc()
         
 # Файл: predictor.py
 
