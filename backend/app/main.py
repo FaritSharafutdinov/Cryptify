@@ -228,56 +228,44 @@ async def get_history(
         # This ensures we show only the most recent predictions without duplicates
         from sqlalchemy import func
         
-        # Get the latest prediction for each (model_name, target_hours) combination
-        # Using a subquery to find max(time) for each combination
-        subquery = (
-            db.query(
-                Prediction.model_name,
-                Prediction.target_hours,
-                func.max(Prediction.time).label('max_time')
-            )
-            .group_by(Prediction.model_name, Prediction.target_hours)
-            .subquery()
-        )
-        
-        # Join with predictions to get full prediction records
-        predictions_query = (
-            db.query(Prediction)
-            .join(
-                subquery,
-                and_(
-                    Prediction.model_name == subquery.c.model_name,
-                    Prediction.target_hours == subquery.c.target_hours,
-                    Prediction.time == subquery.c.max_time
-                )
-            )
-        )
+        # Get all predictions first, then filter to get latest for each combination
+        all_predictions_query = db.query(Prediction)
         
         # Filter by model if specified
         if model:
             # Map frontend model names to backend model names
             if model == "linear_regression":
-                predictions_query = predictions_query.filter(
+                all_predictions_query = all_predictions_query.filter(
                     (Prediction.model_name.like("%LinearRegression%")) |
                     (Prediction.model_name.like("%LR%")) |
                     (Prediction.model_name == "linear_regression")
                 )
             elif model == "xgboost":
-                predictions_query = predictions_query.filter(
+                all_predictions_query = all_predictions_query.filter(
                     (Prediction.model_name.like("%XGBoost%")) |
                     (Prediction.model_name.like("%XGB%")) |
                     (Prediction.model_name == "xgboost")
                 )
             elif model == "lstm":
-                predictions_query = predictions_query.filter(
+                all_predictions_query = all_predictions_query.filter(
                     (Prediction.model_name.like("%LSTM%")) |
                     (Prediction.model_name == "lstm")
                 )
         
-        predictions = predictions_query.order_by(Prediction.target_hours, Prediction.model_name).all()
+        all_predictions = all_predictions_query.order_by(Prediction.time.desc()).all()
         
-        # For short ranges, we already have only latest predictions per combination
-        # Just ensure we limit to reasonable number
+        # Group by (model_name, target_hours) and keep only the latest (first) for each group
+        predictions_dict = {}
+        for pred in all_predictions:
+            key = (pred.model_name, pred.target_hours)
+            if key not in predictions_dict:
+                predictions_dict[key] = pred
+        
+        # Convert back to list and sort by target_hours, then model_name
+        predictions = list(predictions_dict.values())
+        predictions.sort(key=lambda p: (p.target_hours, p.model_name or ""))
+        
+        # Limit to reasonable number
         if model:
             # If model filter is applied, limit to 3 predictions (one per horizon: 6h, 12h, 24h)
             predictions = predictions[:3]
