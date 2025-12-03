@@ -224,34 +224,34 @@ async def get_history(
                 })
 
         # Query predictions data
-        # For short ranges (1d), get only the most recent prediction batch (same timestamp)
-        time_range_hours = (to_time - from_time).total_seconds() / 3600
-        if time_range_hours <= 48:  # For 1d or 2d ranges
-            # First, find the most recent prediction time in the database
-            from sqlalchemy import func
-            max_time_query = db.query(func.max(Prediction.time)).scalar()
-            
-            if max_time_query:
-                # Get only predictions from the most recent timestamp
-                predictions_query = (
-                    db.query(Prediction)
-                    .filter(Prediction.time == max_time_query)
-                )
-            else:
-                # Fallback: get recent predictions (last 7 days)
-                predictions_query = (
-                    db.query(Prediction)
-                    .filter(Prediction.time >= to_time - timedelta(days=7))
-                    .filter(Prediction.time <= to_time)
-                )
-        else:
-            # For longer ranges, use normal time filtering
-            predictions_query = (
-                db.query(Prediction)
-                .filter(
-                    and_(Prediction.time >= from_time, Prediction.time <= to_time)
+        # Always get only the LATEST prediction for each (model_name, target_hours) combination
+        # This ensures we show only the most recent predictions without duplicates
+        from sqlalchemy import func
+        
+        # Get the latest prediction for each (model_name, target_hours) combination
+        # Using a subquery to find max(time) for each combination
+        subquery = (
+            db.query(
+                Prediction.model_name,
+                Prediction.target_hours,
+                func.max(Prediction.time).label('max_time')
+            )
+            .group_by(Prediction.model_name, Prediction.target_hours)
+            .subquery()
+        )
+        
+        # Join with predictions to get full prediction records
+        predictions_query = (
+            db.query(Prediction)
+            .join(
+                subquery,
+                and_(
+                    Prediction.model_name == subquery.c.model_name,
+                    Prediction.target_hours == subquery.c.target_hours,
+                    Prediction.time == subquery.c.max_time
                 )
             )
+        )
         
         # Filter by model if specified
         if model:
@@ -274,30 +274,16 @@ async def get_history(
                     (Prediction.model_name == "lstm")
                 )
         
-        predictions = predictions_query.order_by(Prediction.time.desc()).all()
+        predictions = predictions_query.order_by(Prediction.target_hours, Prediction.model_name).all()
         
-        # For short ranges (1d), predictions are already filtered by SQL to only the most recent timestamp
-        # Now we just need to apply model filter (if specified) and limit the count
-        if time_range_hours <= 48:
-            if predictions:
-                # Additional filtering by model if specified (in case SQL filter needs refinement)
-                if model:
-                    if model == "linear_regression":
-                        predictions = [p for p in predictions if "LinearRegression" in (p.model_name or "") or "LR" in (p.model_name or "")]
-                    elif model == "xgboost":
-                        predictions = [p for p in predictions if "XGBoost" in (p.model_name or "") or "XGB" in (p.model_name or "")]
-                    elif model == "lstm":
-                        predictions = [p for p in predictions if "LSTM" in (p.model_name or "")]
-                
-                # Sort by target_hours to ensure consistent order (6h, 12h, 24h)
-                predictions.sort(key=lambda p: p.target_hours)
-                
-                # If model filter is applied, limit to 3 predictions (one per horizon: 6h, 12h, 24h)
-                # If no model filter, limit to 9 predictions (3 models × 3 horizons)
-                if model:
-                    predictions = predictions[:3]
-                else:
-                    predictions = predictions[:9]
+        # For short ranges, we already have only latest predictions per combination
+        # Just ensure we limit to reasonable number
+        if model:
+            # If model filter is applied, limit to 3 predictions (one per horizon: 6h, 12h, 24h)
+            predictions = predictions[:3]
+        else:
+            # If no model filter, limit to 9 predictions (3 models × 3 horizons)
+            predictions = predictions[:9]
 
         # Format predictions data for frontend
         predictions_data = []
