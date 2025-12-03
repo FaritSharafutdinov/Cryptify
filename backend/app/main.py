@@ -284,12 +284,6 @@ async def get_history(
             
             predicted_time = pred_time + timedelta(hours=pred.target_hours)
             
-            # For 1d ranges, show recent predictions regardless of predicted_time
-            # We already filtered by prediction time (last 7 days), so just take the most recent ones
-            # Don't filter by predicted_time for short ranges - show all recent predictions
-            if time_range_hours <= 48:
-                # For 1d, show all recent predictions (limit to last 10 to avoid too many)
-                pass
             # Get the last close price to calculate predicted_value from log_return
             last_close = None
             if raw_bars_data:
